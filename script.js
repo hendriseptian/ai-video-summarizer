@@ -22,6 +22,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let currentAIData = null;
 
+    let currentVideoData = null;
+
 
     // ==========================================
     // FORMAT TIMESTAMP
@@ -152,7 +154,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let html = `
 
-            <div style="
+             <div id="aiSummaryContainer" style="
                 margin-top: 25px;
                 padding: 20px;
                 border-radius: 12px;
@@ -339,8 +341,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Save AI data
 
-        currentAIData =
-            data.summary;
+        currentVideoData = data;
+
+        currentAIData = data.summary;
 
 
         let html = "";
@@ -493,25 +496,68 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function updateAISummary() {
 
-        const oldSummary =
-            document.querySelector(
-                "#aiSummaryContainer"
+        const aiContainer =
+            document.getElementById(
+                "aiSummaryContainer"
             );
 
-
-        if (!oldSummary) {
-
-            // Fallback:
-            displayTranscriptFromCurrentData();
-
+        if (!aiContainer) {
             return;
         }
 
 
-        oldSummary.outerHTML =
+        const newAI =
             displayAISummary();
-    }
 
+
+        const temp =
+            document.createElement("div");
+
+        temp.innerHTML =
+            newAI;
+
+
+        const newContainer =
+            temp.querySelector(
+                "#aiSummaryContainer"
+            );
+
+
+        if (!newContainer) {
+            return;
+        }
+
+
+        aiContainer.replaceWith(
+            newContainer
+        );
+
+
+    // ======================================
+    // RECONNECT LANGUAGE SELECTOR
+    // ======================================
+
+        const languageSelector =
+            document.getElementById(
+                "languageSelector"
+            );
+
+
+        if (languageSelector) {
+
+            languageSelector.addEventListener(
+                "change",
+                () => {
+
+                    currentLanguage =
+                        languageSelector.value;
+
+                    updateAISummary();
+    
+                }
+            );
+        }
+    }
 
     // ==========================================
     // ANALYZE BUTTON
