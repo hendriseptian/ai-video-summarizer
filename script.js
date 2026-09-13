@@ -1,220 +1,252 @@
-const API_URL =
-    "https://ai-video-summarizer.hendriseptian25.workers.dev";
+document.addEventListener("DOMContentLoaded", () => {
+
+    const videoUrlInput = document.getElementById("videoUrl");
+    const analyzeButton = document.getElementById("analyzeButton");
+    const statusElement = document.getElementById("status");
+
+    const API_URL =
+        "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
 
 
-function getYouTubeId(url) {
+    // ==========================================
+    // FORMAT TIMESTAMP
+    // ==========================================
 
-    try {
+    function formatTime(seconds) {
 
-        const parsed = new URL(url);
+        seconds = Math.floor(Number(seconds) || 0);
 
-        if (parsed.hostname.includes("youtu.be")) {
-            return parsed.pathname.substring(1);
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+
+        if (hours > 0) {
+            return (
+                String(hours).padStart(2, "0") +
+                ":" +
+                String(minutes).padStart(2, "0") +
+                ":" +
+                String(secs).padStart(2, "0")
+            );
         }
 
-        if (parsed.hostname.includes("youtube.com")) {
-            return parsed.searchParams.get("v");
-        }
-
-        return null;
-
-    } catch (error) {
-
-        return null;
-
-    }
-}
-
-
-async function analyzeVideo() {
-
-    const urlInput = document.getElementById("videoUrl");
-    const status = document.getElementById("status");
-
-    if (!urlInput) {
-        console.error("Element #videoUrl tidak ditemukan.");
-        return;
-    }
-
-    if (!status) {
-        console.error("Element #status tidak ditemukan.");
-        return;
-    }
-
-
-    const url = urlInput.value.trim();
-
-
-    // =========================
-    // CHECK URL
-    // =========================
-
-    if (!url) {
-
-        status.innerHTML = `
-            <p>Please enter a YouTube URL.</p>
-        `;
-
-        return;
-    }
-
-
-    const videoId = getYouTubeId(url);
-
-
-    if (!videoId) {
-
-        status.innerHTML = `
-            <p>Invalid YouTube URL.</p>
-        `;
-
-        return;
-    }
-
-
-    // =========================
-    // START ANALYSIS
-    // =========================
-
-    status.innerHTML = `
-        <p><strong>Status:</strong> Connecting...</p>
-        <p><strong>URL:</strong> ${url}</p>
-    `;
-
-
-    try {
-
-        console.log("Sending request to Cloudflare...");
-        console.log("URL:", url);
-
-
-        const response = await fetch(
-            `${API_URL}/analyze`,
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify({
-                    url: url
-                })
-            }
+        return (
+            String(minutes).padStart(2, "0") +
+            ":" +
+            String(secs).padStart(2, "0")
         );
-
-
-        console.log("HTTP Status:", response.status);
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                `API returned HTTP ${response.status}`
-            );
-
-        }
-
-
-        const data = await response.json();
-
-
-        console.log("API Response:", data);
-
-
-        if (data.status !== "success") {
-
-            throw new Error(
-                data.message || "Analysis failed"
-            );
-
-        }
-
-
-        // =========================
-        // SUCCESS
-        // =========================
-
-        status.innerHTML = `
-            <p>
-                <strong>Status:</strong>
-                Connected
-            </p>
-
-            <p>
-                <strong>URL:</strong>
-                ${data.url}
-            </p>
-
-            <p>
-                <strong>Source:</strong>
-                YouTube
-            </p>
-
-            <p>
-                <strong>Backend:</strong>
-                Cloudflare
-            </p>
-
-            <p>
-                <strong>Video ID:</strong>
-                ${videoId}
-            </p>
-        `;
-
-
-    } catch (error) {
-
-        console.error("Analysis error:", error);
-
-
-        status.innerHTML = `
-            <p>
-                <strong>Status:</strong>
-                Error
-            </p>
-
-            <p>
-                ${error.message}
-            </p>
-        `;
-
     }
 
-}
+
+    // ==========================================
+    // DISPLAY TRANSCRIPT
+    // ==========================================
+
+    function displayTranscript(data) {
+
+        const transcriptData = data.transcript;
+
+        if (!transcriptData) {
+            statusElement.innerHTML =
+                "❌ Transcript tidak ditemukan.";
+
+            return;
+        }
+
+        const title = transcriptData.title || "Untitled Video";
+        const language = transcriptData.language || "-";
+        const segments = transcriptData.transcript || [];
 
 
-// ========================================
-// CONNECT ANALYZE BUTTON
-// ========================================
+        let html = "";
 
-document.addEventListener(
-    "DOMContentLoaded",
-    function () {
+        html += `
+            <div style="
+                margin-top: 25px;
+                padding: 20px;
+                border-radius: 12px;
+                background: #f5f5f5;
+            ">
 
-        const button =
-            document.getElementById("analyzeButton");
+                <h2>${title}</h2>
+
+                <p>
+                    <strong>Language:</strong> ${language}
+                </p>
+
+                <hr>
+
+                <h3>Transcript</h3>
+
+                <div>
+        `;
 
 
-        if (!button) {
+        if (segments.length === 0) {
 
-            console.error(
-                "Element #analyzeButton tidak ditemukan."
-            );
+            html += `
+                <p>
+                    Transcript kosong.
+                </p>
+            `;
+
+        } else {
+
+            segments.forEach(segment => {
+
+                const timestamp =
+                    formatTime(segment.start);
+
+                const text =
+                    segment.text || "";
+
+
+                html += `
+                    <div style="
+                        display: flex;
+                        gap: 15px;
+                        padding: 8px 0;
+                        border-bottom: 1px solid #ddd;
+                    ">
+
+                        <span style="
+                            min-width: 55px;
+                            font-weight: bold;
+                            color: #555;
+                        ">
+                            ${timestamp}
+                        </span>
+
+                        <span>
+                            ${text}
+                        </span>
+
+                    </div>
+                `;
+            });
+        }
+
+
+        html += `
+                </div>
+            </div>
+        `;
+
+
+        statusElement.innerHTML = html;
+    }
+
+
+    // ==========================================
+    // ANALYZE BUTTON
+    // ==========================================
+
+    analyzeButton.addEventListener("click", async () => {
+
+        const url =
+            videoUrlInput.value.trim();
+
+
+        // ======================================
+        // VALIDATION
+        // ======================================
+
+        if (!url) {
+
+            statusElement.innerHTML =
+                "❌ Masukkan URL YouTube terlebih dahulu.";
 
             return;
         }
 
 
-        button.addEventListener(
-            "click",
-            analyzeVideo
-        );
+        // ======================================
+        // LOADING
+        // ======================================
+
+        analyzeButton.disabled = true;
+
+        analyzeButton.innerText =
+            "Analyzing...";
+
+        statusElement.innerHTML =
+            "⏳ Mengambil transcript dari YouTube...";
 
 
-        console.log(
-            "AI Video Summarizer initialized."
-        );
+        try {
 
-    }
-);
+            // ==================================
+            // CALL CLOUDFLARE API
+            // ==================================
+
+            const response =
+                await fetch(API_URL, {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        url: url
+                    })
+                });
+
+
+            const data =
+                await response.json();
+
+
+            // ==================================
+            // API ERROR
+            // ==================================
+
+            if (!response.ok ||
+                data.status !== "success") {
+
+                console.error(
+                    "API Error:",
+                    data
+                );
+
+                statusElement.innerHTML =
+                    `
+                    ❌ Gagal mengambil transcript.
+                    <br><br>
+                    ${data.message || "Unknown error"}
+                    `;
+
+                return;
+            }
+
+
+            // ==================================
+            // SUCCESS
+            // ==================================
+
+            displayTranscript(data);
+
+
+        } catch (error) {
+
+            console.error(error);
+
+            statusElement.innerHTML =
+                `
+                ❌ Tidak dapat terhubung ke backend.
+                <br><br>
+                ${error.message}
+                `;
+
+        } finally {
+
+            analyzeButton.disabled = false;
+
+            analyzeButton.innerText =
+                "Analyze";
+        }
+
+    });
+
+});
