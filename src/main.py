@@ -133,10 +133,9 @@ async def analyze(data: dict):
 
         return {
             "status": "success",
-            "url": url,
-            "source": "YouTube",
-            "backend": "Cloudflare",
-            "transcript": transcript_data
+            "youtube_url": url,
+            "api_status": int(response.status),
+            "transcript": response.json()
         }
 
 
