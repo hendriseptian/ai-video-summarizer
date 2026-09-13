@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from workers import asgi
+import json
 
 
 app = FastAPI(
@@ -37,6 +38,7 @@ async def health():
 
 @app.post("/analyze")
 async def analyze(data: dict):
+
     url = data.get("url")
 
     if not url:
@@ -45,10 +47,69 @@ async def analyze(data: dict):
             "message": "YouTube URL is required"
         }
 
+
+    # Ambil API key dari Cloudflare Secret
+    api_key = None
+
+    try:
+        from workers import env
+        api_key = env.FREETRANSCRIPT_API_KEY
+    except Exception:
+        pass
+
+
+    if not api_key:
+
+        return {
+            "status": "error",
+            "message": "FreeTranscriptAPI key is not configured"
+        }
+
+
+    # Import fetch dari Workers runtime
+    from js import fetch
+
+
+    api_url = (
+        "https://api.freetranscriptapi.com/v1/transcript"
+        "?video_url="
+        + url
+    )
+
+
+    response = await fetch(
+        api_url,
+        {
+            "method": "GET",
+            "headers": {
+                "Authorization": f"Bearer {api_key}"
+            }
+        }
+    )
+
+
+    response_text = await response.text()
+
+
+    if not response.ok:
+
+        return {
+            "status": "error",
+            "message": "Transcript API request failed",
+            "http_status": response.status,
+            "details": response_text
+        }
+
+
+    transcript_data = json.loads(response_text)
+
+
     return {
         "status": "success",
-        "message": "Video URL received",
-        "url": url
+        "url": url,
+        "source": "YouTube",
+        "backend": "Cloudflare",
+        "transcript": transcript_data
     }
 
 
