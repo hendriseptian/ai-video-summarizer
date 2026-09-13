@@ -13,7 +13,7 @@ import httpx2 as httpx
 app = FastAPI(
     title="AI Video Summarizer API",
     description="Backend API for AI Video Summarizer",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 
@@ -199,13 +199,6 @@ async def analyze(data: dict):
         # ====================================================
         # 7. LIMIT TRANSCRIPT
         # ====================================================
-        #
-        # V1:
-        # Keep a reasonable size for the first AI test.
-        #
-        # Later we will build automatic chunking for
-        # very long videos.
-        #
 
         max_characters = 100000
 
@@ -217,44 +210,78 @@ async def analyze(data: dict):
 
 
         # ====================================================
-        # 8. AI PROMPT
+        # 8. AI SYSTEM PROMPT
         # ====================================================
 
         system_prompt = """
 You are an AI video summarization assistant.
 
 Your task is to analyze a video transcript and produce
-a useful, accurate summary.
+an accurate and useful summary in TWO languages:
 
-Rules:
+1. English
+2. Indonesian
 
-1. Use only information contained in the transcript.
-2. Do not invent facts.
-3. Keep the summary concise but informative.
-4. Identify the most important ideas.
-5. Write in the same language as the transcript when possible.
+IMPORTANT RULES:
 
-Return the result using exactly these sections:
+1. Use ONLY information contained in the transcript.
+2. Do NOT invent facts.
+3. Do NOT add information that is not supported by the transcript.
+4. Keep the summary concise but informative.
+5. Identify the most important ideas.
+6. The English version must be written in natural English.
+7. The Indonesian version must be written in natural Indonesian.
+8. Both versions must have the same meaning.
+9. Do not translate the transcript itself.
+10. Summarize the content.
 
-SUMMARY:
-A concise summary of the video.
+Return ONLY valid JSON.
 
-KEY POINTS:
-- Important point 1
-- Important point 2
-- Important point 3
-- Important point 4
-- Important point 5
+Use EXACTLY this structure:
 
-TAKEAWAYS:
-A concise conclusion explaining the main lesson or
-important conclusion from the video.
+{
+  "en": {
+    "summary": "A concise summary in English.",
+    "key_points": [
+      "Important point 1",
+      "Important point 2",
+      "Important point 3",
+      "Important point 4",
+      "Important point 5"
+    ],
+    "takeaways": "A concise conclusion in English."
+  },
+  "id": {
+    "summary": "Ringkasan singkat dalam Bahasa Indonesia.",
+    "key_points": [
+      "Poin penting 1",
+      "Poin penting 2",
+      "Poin penting 3",
+      "Poin penting 4",
+      "Poin penting 5"
+    ],
+    "takeaways": "Kesimpulan singkat dalam Bahasa Indonesia."
+  }
+}
+
+Do not use Markdown.
+
+Do not put ```json around the response.
+
+Return only the JSON object.
 """
 
+
+        # ====================================================
+        # 9. AI USER PROMPT
+        # ====================================================
 
         user_prompt = f"""
 Video title:
 {video_title}
+
+Transcript language:
+{language}
 
 Transcript:
 
@@ -263,7 +290,7 @@ Transcript:
 
 
         # ====================================================
-        # 9. CALL WORKERS AI
+        # 10. CALL WORKERS AI
         # ====================================================
 
         ai_response = await env.AI.run(
@@ -285,7 +312,7 @@ Transcript:
 
                 ],
 
-                "temperature": 0.3,
+                "temperature": 0.2,
 
                 "chat_template_kwargs": {
                     "enable_thinking": False
@@ -295,7 +322,7 @@ Transcript:
 
 
         # ====================================================
-        # 10. GET AI RESPONSE
+        # 11. GET AI CONTENT
         # ====================================================
 
         ai_text = (
@@ -305,8 +332,43 @@ Transcript:
             .get("content", "")
         )
 
+
         # ====================================================
-        # 11. RETURN RESULT
+        # 12. PARSE AI JSON
+        # ====================================================
+
+        try:
+
+            import json
+
+            ai_summary = json.loads(ai_text)
+
+        except Exception:
+
+            ai_summary = {
+
+                "en": {
+
+                    "summary": ai_text,
+
+                    "key_points": [],
+
+                    "takeaways": ""
+                },
+
+                "id": {
+
+                    "summary": "",
+
+                    "key_points": [],
+
+                    "takeaways": ""
+                }
+            }
+
+
+        # ====================================================
+        # 13. RETURN RESULT
         # ====================================================
 
         return {
@@ -319,7 +381,7 @@ Transcript:
 
             "language": language,
 
-            "summary": ai_text,
+            "summary": ai_summary,
 
             "transcript": transcript_data
         }
