@@ -1,5 +1,9 @@
 document.addEventListener("DOMContentLoaded", () => {
 
+    // ==========================================
+    // ELEMENT
+    // ==========================================
+
     const videoUrlInput =
         document.getElementById("videoUrl");
 
@@ -10,12 +14,16 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("status");
 
 
+    // ==========================================
+    // API
+    // ==========================================
+
     const API_URL =
         "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
 
 
     // ==========================================
-    // CURRENT LANGUAGE
+    // CURRENT DATA
     // ==========================================
 
     let currentLanguage = "en";
@@ -56,6 +64,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 ":" +
                 String(secs).padStart(2, "0")
             );
+
         }
 
 
@@ -83,7 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
     // ==========================================
-    // GET LANGUAGE DATA
+    // GET CURRENT LANGUAGE DATA
     // ==========================================
 
     function getLanguageData() {
@@ -103,27 +112,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
     // ==========================================
-    // DISPLAY AI SUMMARY
+    // CREATE AI SUMMARY HTML
     // ==========================================
 
-    function displayAISummary() {
+    function createAISummaryHTML() {
 
         const ai =
             getLanguageData();
 
 
+        // ======================================
+        // AI DATA NOT AVAILABLE
+        // ======================================
+
         if (!ai) {
 
             return `
-                <div style="
-                    margin-top: 25px;
-                    padding: 20px;
-                    border-radius: 12px;
-                    background: #ffecec;
-                    border: 1px solid #ffb5b5;
-                ">
+
+                <div
+                    id="aiSummaryContainer"
+                    style="
+                        margin-top: 25px;
+                        padding: 20px;
+                        border-radius: 12px;
+                        background: #ffecec;
+                        border: 1px solid #ffb5b5;
+                    "
+                >
+
                     ❌ AI Summary tidak tersedia.
+
                 </div>
+
             `;
         }
 
@@ -143,129 +163,154 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
         // ======================================
-        // LANGUAGE BUTTON
+        // LANGUAGE SELECTOR
         // ======================================
 
-        const languageButton =
-            currentLanguage === "en"
-                ? "🇬🇧 EN"
-                : "🇮🇩 ID";
+        const languageSelector = `
 
+            <select
+                id="languageSelector"
+                style="
+                    padding: 7px 10px;
+                    border-radius: 8px;
+                    border: 1px solid #bbb;
+                    background: white;
+                    cursor: pointer;
+                    font-size: 14px;
+                "
+            >
+
+                <option
+                    value="en"
+                    ${currentLanguage === "en" ? "selected" : ""}
+                >
+                    🇬🇧 EN
+                </option>
+
+                <option
+                    value="id"
+                    ${currentLanguage === "id" ? "selected" : ""}
+                >
+                    🇮🇩 ID
+                </option>
+
+            </select>
+
+        `;
+
+
+        // ======================================
+        // START HTML
+        // ======================================
 
         let html = `
 
-             <div id="aiSummaryContainer" style="
-                margin-top: 25px;
-                padding: 20px;
-                border-radius: 12px;
-                background: #eef6ff;
-                border: 1px solid #cfe3ff;
-                position: relative;
-            ">
+            <div
+                id="aiSummaryContainer"
+                style="
+                    margin-top: 25px;
+                    padding: 20px;
+                    border-radius: 12px;
+                    background: #eef6ff;
+                    border: 1px solid #cfe3ff;
+                    position: relative;
+                "
+            >
 
 
                 <!-- LANGUAGE SELECTOR -->
 
-                <div style="
-                    position: absolute;
-                    top: 15px;
-                    right: 15px;
-                ">
+                <div
+                    style="
+                        position: absolute;
+                        top: 15px;
+                        right: 15px;
+                    "
+                >
 
-                    <select
-                        id="languageSelector"
-                        style="
-                            padding: 7px 10px;
-                            border-radius: 8px;
-                            border: 1px solid #bbb;
-                            background: white;
-                            cursor: pointer;
-                            font-size: 14px;
-                        "
-                    >
-
-                        <option
-                            value="en"
-                            ${
-                                currentLanguage === "en"
-                                    ? "selected"
-                                    : ""
-                            }
-                        >
-                            🇬🇧 EN
-                        </option>
-
-                        <option
-                            value="id"
-                            ${
-                                currentLanguage === "id"
-                                    ? "selected"
-                                    : ""
-                            }
-                        >
-                            🇮🇩 ID
-                        </option>
-
-                    </select>
+                    ${languageSelector}
 
                 </div>
 
 
-                <!-- SUMMARY -->
+                <!-- AI SUMMARY -->
 
                 <h2>
                     🤖 AI Summary
                 </h2>
 
 
-                <p style="
-                    line-height: 1.7;
-                    white-space: pre-wrap;
-                    margin-top: 15px;
-                ">
+                <!-- SUMMARY -->
+
+                <p
+                    style="
+                        line-height: 1.7;
+                        white-space: pre-wrap;
+                        margin-top: 15px;
+                        padding-right: 100px;
+                    "
+                >
                     ${escapeHTML(summary)}
                 </p>
 
 
                 <!-- KEY POINTS -->
 
-                <div style="
-                    margin-top: 25px;
-                    padding-top: 15px;
-                    border-top: 1px solid #d5e5f5;
-                ">
+                <div
+                    style="
+                        margin-top: 25px;
+                        padding-top: 15px;
+                        border-top: 1px solid #d5e5f5;
+                    "
+                >
 
                     <h3>
                         📌 Key Points
                     </h3>
 
-                    <ul style="
-                        line-height: 1.8;
-                        padding-left: 25px;
-                    ">
+
+                    <ul
+                        style="
+                            line-height: 1.8;
+                            padding-left: 25px;
+                        "
+                    >
+
         `;
 
+
+        // ======================================
+        // KEY POINTS DATA
+        // ======================================
 
         if (keyPoints.length > 0) {
 
             keyPoints.forEach(point => {
 
                 html += `
+
                     <li>
                         ${escapeHTML(point)}
                     </li>
+
                 `;
             });
 
         } else {
 
             html += `
+
                 <li>
                     Key points tidak tersedia.
                 </li>
+
             `;
         }
 
+
+        // ======================================
+        // TAKEAWAYS
+        // ======================================
 
         html += `
 
@@ -276,30 +321,112 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 <!-- TAKEAWAYS -->
 
-                <div style="
-                    margin-top: 25px;
-                    padding-top: 15px;
-                    border-top: 1px solid #d5e5f5;
-                ">
+                <div
+                    style="
+                        margin-top: 25px;
+                        padding-top: 15px;
+                        border-top: 1px solid #d5e5f5;
+                    "
+                >
 
                     <h3>
                         💡 Takeaways
                     </h3>
 
-                    <p style="
-                        line-height: 1.7;
-                        white-space: pre-wrap;
-                    ">
+
+                    <p
+                        style="
+                            line-height: 1.7;
+                            white-space: pre-wrap;
+                        "
+                    >
                         ${escapeHTML(takeaways)}
                     </p>
 
                 </div>
 
+
             </div>
+
         `;
 
 
         return html;
+    }
+
+
+    // ==========================================
+    // DISPLAY AI SUMMARY
+    // ==========================================
+
+    function displayAISummary() {
+
+        return createAISummaryHTML();
+
+    }
+
+
+    // ==========================================
+    // UPDATE AI SUMMARY ONLY
+    // ==========================================
+
+    function updateAISummary() {
+
+        if (!currentVideoData) {
+            return;
+        }
+
+
+        const oldContainer =
+            document.getElementById(
+                "aiSummaryContainer"
+            );
+
+
+        if (!oldContainer) {
+
+            console.warn(
+                "aiSummaryContainer tidak ditemukan."
+            );
+
+            return;
+        }
+
+
+        // ======================================
+        // CREATE NEW AI SUMMARY
+        // ======================================
+
+        const newContainer =
+            document.createElement("div");
+
+
+        newContainer.innerHTML =
+            createAISummaryHTML();
+
+
+        const newAIContainer =
+            newContainer.firstElementChild;
+
+
+        if (!newAIContainer) {
+
+            console.warn(
+                "Gagal membuat AI Summary."
+            );
+
+            return;
+        }
+
+
+        // ======================================
+        // REPLACE ONLY AI SUMMARY
+        // ======================================
+
+        oldContainer.replaceWith(
+            newAIContainer
+        );
+
     }
 
 
@@ -313,14 +440,38 @@ document.addEventListener("DOMContentLoaded", () => {
             data.transcript;
 
 
+        // ======================================
+        // VALIDATE TRANSCRIPT
+        // ======================================
+
         if (!transcriptData) {
 
             statusElement.innerHTML =
-                "❌ Transcript tidak ditemukan.";
+                `
+
+                <div
+                    style="
+                        margin-top: 25px;
+                        padding: 20px;
+                        border-radius: 12px;
+                        background: #ffecec;
+                        border: 1px solid #ffb5b5;
+                    "
+                >
+
+                    ❌ Transcript tidak ditemukan.
+
+                </div>
+
+                `;
 
             return;
         }
 
+
+        // ======================================
+        // VIDEO INFORMATION
+        // ======================================
 
         const title =
             transcriptData.title ||
@@ -339,37 +490,53 @@ document.addEventListener("DOMContentLoaded", () => {
             [];
 
 
-        // Save AI data
+        // ======================================
+        // SAVE DATA
+        // ======================================
 
-        currentVideoData = data;
+        currentVideoData =
+            data;
 
-        currentAIData = data.summary;
 
-
-        let html = "";
+        currentAIData =
+            data.summary || null;
 
 
         // ======================================
-        // VIDEO INFORMATION
+        // START HTML
         // ======================================
 
-        html += `
+        let html = `
 
-            <div style="
-                margin-top: 25px;
-                padding: 20px;
-                border-radius: 12px;
-                background: #f5f5f5;
-            ">
+            <div
+                style="
+                    margin-top: 25px;
+                    padding: 20px;
+                    border-radius: 12px;
+                    background: #f5f5f5;
+                "
+            >
+
+
+                <!-- VIDEO TITLE -->
 
                 <h2>
                     ${escapeHTML(title)}
                 </h2>
 
+
+                <!-- LANGUAGE -->
+
                 <p>
-                    <strong>Transcript Language:</strong>
+
+                    <strong>
+                        Transcript Language:
+                    </strong>
+
                     ${escapeHTML(language)}
+
                 </p>
+
 
         `;
 
@@ -388,9 +555,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         html += `
 
-                <div style="
-                    margin-top: 30px;
-                ">
+                <div
+                    style="
+                        margin-top: 30px;
+                    "
+                >
 
                     <h2>
                         📝 Transcript
@@ -399,20 +568,33 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
 
+        // ======================================
+        // EMPTY TRANSCRIPT
+        // ======================================
+
         if (segments.length === 0) {
 
             html += `
+
                 <p>
                     Transcript kosong.
                 </p>
+
             `;
 
         } else {
 
+
+            // ==================================
+            // TRANSCRIPT SEGMENTS
+            // ==================================
+
             segments.forEach(segment => {
 
                 const timestamp =
-                    formatTime(segment.start);
+                    formatTime(
+                        segment.start
+                    );
 
 
                 const text =
@@ -421,33 +603,52 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 html += `
 
-                    <div style="
-                        display: flex;
-                        gap: 15px;
-                        padding: 8px 0;
-                        border-bottom: 1px solid #ddd;
-                    ">
+                    <div
+                        style="
+                            display: flex;
+                            gap: 15px;
+                            padding: 8px 0;
+                            border-bottom: 1px solid #ddd;
+                        "
+                    >
 
-                        <span style="
-                            min-width: 55px;
-                            font-weight: bold;
-                            color: #555;
-                        ">
+
+                        <!-- TIMESTAMP -->
+
+                        <span
+                            style="
+                                min-width: 55px;
+                                font-weight: bold;
+                                color: #555;
+                            "
+                        >
                             ${escapeHTML(timestamp)}
                         </span>
 
-                        <span style="
-                            line-height: 1.6;
-                        ">
+
+                        <!-- TEXT -->
+
+                        <span
+                            style="
+                                line-height: 1.6;
+                            "
+                        >
                             ${escapeHTML(text)}
                         </span>
+
 
                     </div>
 
                 `;
+
             });
+
         }
 
+
+        // ======================================
+        // CLOSE HTML
+        // ======================================
 
         html += `
 
@@ -458,106 +659,54 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
 
+        // ======================================
+        // DISPLAY
+        // ======================================
+
         statusElement.innerHTML =
             html;
 
-
-        // ======================================
-        // LANGUAGE SELECTOR EVENT
-        // ======================================
-
-        const languageSelector =
-            document.getElementById(
-                "languageSelector"
-            );
-
-
-        if (languageSelector) {
-
-            languageSelector.addEventListener(
-                "change",
-                () => {
-
-                    currentLanguage =
-                        languageSelector.value;
-
-
-                    updateAISummary();
-
-                }
-            );
-        }
     }
 
 
     // ==========================================
-    // UPDATE AI SUMMARY ONLY
+    // LANGUAGE SELECTOR
+    // ==========================================
+    //
+    // EVENT DELEGATION
+    //
+    // Event listener dipasang SATU KALI.
+    // Jadi walaupun AI Summary diganti,
+    // dropdown tetap bekerja.
     // ==========================================
 
-    function updateAISummary() {
+    statusElement.addEventListener(
+        "change",
+        (event) => {
 
-        const aiContainer =
-            document.getElementById(
-                "aiSummaryContainer"
-            );
+            if (
+                event.target &&
+                event.target.id ===
+                    "languageSelector"
+            ) {
 
-        if (!aiContainer) {
-            return;
+                currentLanguage =
+                    event.target.value;
+
+
+                console.log(
+                    "Language changed to:",
+                    currentLanguage
+                );
+
+
+                updateAISummary();
+
+            }
+
         }
+    );
 
-
-        const newAI =
-            displayAISummary();
-
-
-        const temp =
-            document.createElement("div");
-
-        temp.innerHTML =
-            newAI;
-
-
-        const newContainer =
-            temp.querySelector(
-                "#aiSummaryContainer"
-            );
-
-
-        if (!newContainer) {
-            return;
-        }
-
-
-        aiContainer.replaceWith(
-            newContainer
-        );
-
-
-    // ======================================
-    // RECONNECT LANGUAGE SELECTOR
-    // ======================================
-
-        const languageSelector =
-            document.getElementById(
-                "languageSelector"
-            );
-
-
-        if (languageSelector) {
-
-            languageSelector.addEventListener(
-                "change",
-                () => {
-
-                    currentLanguage =
-                        languageSelector.value;
-
-                    updateAISummary();
-    
-                }
-            );
-        }
-    }
 
     // ==========================================
     // ANALYZE BUTTON
@@ -577,8 +726,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!url) {
 
-                statusElement.innerHTML =
-                    "❌ Masukkan URL YouTube terlebih dahulu.";
+                statusElement.innerHTML = `
+
+                    <div
+                        style="
+                            margin-top: 25px;
+                            padding: 20px;
+                            border-radius: 12px;
+                            background: #ffecec;
+                            border: 1px solid #ffb5b5;
+                        "
+                    >
+
+                        ❌ Masukkan URL YouTube
+                        terlebih dahulu.
+
+                    </div>
+
+                `;
 
                 return;
             }
@@ -591,18 +756,21 @@ document.addEventListener("DOMContentLoaded", () => {
             analyzeButton.disabled =
                 true;
 
+
             analyzeButton.innerText =
                 "Analyzing...";
 
 
             statusElement.innerHTML = `
 
-                <div style="
-                    margin-top: 25px;
-                    padding: 20px;
-                    border-radius: 12px;
-                    background: #f5f5f5;
-                ">
+                <div
+                    style="
+                        margin-top: 25px;
+                        padding: 20px;
+                        border-radius: 12px;
+                        background: #f5f5f5;
+                    "
+                >
 
                     ⏳ Mengambil transcript
                     dan membuat AI summary...
@@ -615,7 +783,7 @@ document.addEventListener("DOMContentLoaded", () => {
             try {
 
                 // ==============================
-                // CALL API
+                // CALL BACKEND
                 // ==============================
 
                 const response =
@@ -642,12 +810,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     );
 
 
+                // ==============================
+                // READ RESPONSE
+                // ==============================
+
                 const data =
                     await response.json();
 
 
                 // ==============================
-                // ERROR
+                // ERROR CHECK
                 // ==============================
 
                 if (
@@ -663,15 +835,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
                     statusElement.innerHTML = `
 
-                        <div style="
-                            margin-top: 25px;
-                            padding: 20px;
-                            border-radius: 12px;
-                            background: #ffecec;
-                            border: 1px solid #ffb5b5;
-                        ">
+                        <div
+                            style="
+                                margin-top: 25px;
+                                padding: 20px;
+                                border-radius: 12px;
+                                background: #ffecec;
+                                border: 1px solid #ffb5b5;
+                            "
+                        >
 
-                            ❌ Gagal menganalisis video.
+                            ❌ Gagal menganalisis
+                            video.
 
                             <br><br>
 
@@ -692,25 +867,34 @@ document.addEventListener("DOMContentLoaded", () => {
                 // SUCCESS
                 // ==============================
 
-                currentLanguage = "en";
+                currentLanguage =
+                    "en";
 
-                displayTranscript(data);
+
+                displayTranscript(
+                    data
+                );
 
 
             } catch (error) {
 
-                console.error(error);
+                console.error(
+                    "Frontend Error:",
+                    error
+                );
 
 
                 statusElement.innerHTML = `
 
-                    <div style="
-                        margin-top: 25px;
-                        padding: 20px;
-                        border-radius: 12px;
-                        background: #ffecec;
-                        border: 1px solid #ffb5b5;
-                    ">
+                    <div
+                        style="
+                            margin-top: 25px;
+                            padding: 20px;
+                            border-radius: 12px;
+                            background: #ffecec;
+                            border: 1px solid #ffb5b5;
+                        "
+                    >
 
                         ❌ Tidak dapat terhubung
                         ke backend.
@@ -727,11 +911,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
             } finally {
 
+                // ==============================
+                // RESET BUTTON
+                // ==============================
+
                 analyzeButton.disabled =
                     false;
 
+
                 analyzeButton.innerText =
                     "Analyze";
+
             }
 
         }
