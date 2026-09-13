@@ -298,7 +298,12 @@ Transcript:
         # 10. GET AI RESPONSE
         # ====================================================
 
-        ai_text = str(ai_response)
+        ai_text = (
+            ai_response
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
 
         # ====================================================
         # 11. RETURN RESULT
