@@ -287,7 +287,9 @@ Transcript:
 
                 "temperature": 0.3,
 
-                "max_tokens": 1200
+                "chat_template_kwargs": {
+                    "enable_thinking": False
+                }
             }
         )
 
