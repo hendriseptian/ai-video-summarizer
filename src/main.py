@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from workers import asgi, fetch
+from workers import asgi, env
 
-from urllib.parse import quote
+import httpx
 
 
 app = FastAPI(
@@ -49,7 +49,6 @@ async def analyze(data: dict):
         url = data.get("url")
 
         if not url:
-
             return {
                 "status": "error",
                 "message": "YouTube URL is required"
@@ -57,50 +56,87 @@ async def analyze(data: dict):
 
 
         # ==============================
-        # 2. ENCODE URL
+        # 2. GET API KEY
         # ==============================
 
-        encoded_url = quote(
-            url,
-            safe=""
+        api_key = getattr(
+            env,
+            "FREETRANSCRIPT_API_KEY",
+            None
         )
 
 
         # ==============================
-        # 3. FREETRANSCRIPT API
+        # 3. CALL FREETRANSCRIPT API
         # ==============================
 
         api_url = (
             "https://api.freetranscriptapi.com/v1/transcript"
-            f"?video_url={encoded_url}"
         )
 
 
+        headers = {
+            "Accept": "application/json"
+        }
+
+
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+
+        params = {
+            "video_url": url
+        }
+
+
+        async with httpx.AsyncClient() as client:
+
+            response = await client.get(
+                api_url,
+                params=params,
+                headers=headers,
+                timeout=30.0
+            )
+
+
         # ==============================
-        # 4. CALL API
+        # 4. READ RESPONSE
         # ==============================
 
-        response = await fetch(
-            api_url
-        )
+        response_text = response.text
 
 
         # ==============================
-        # 5. READ RESPONSE
+        # 5. RETURN API ERROR
         # ==============================
 
-        response_text = await response.text()
+        if response.status_code >= 400:
+
+            return {
+                "status": "error",
+                "message": "FreeTranscriptAPI request failed",
+                "http_status": response.status_code,
+                "details": response_text
+            }
 
 
         # ==============================
-        # 6. RETURN RAW RESULT
+        # 6. PARSE JSON
+        # ==============================
+
+        transcript_data = response.json()
+
+
+        # ==============================
+        # 7. SUCCESS
         # ==============================
 
         return {
             "status": "success",
-            "youtube_url": url,
-            "api_status": int(response.status),
-            "transcript_api_response": response_text
+            "url": url,
+            "source": "YouTube",
+            "backend": "Cloudflare",
+            "transcript": transcript_data
         }
 
 
