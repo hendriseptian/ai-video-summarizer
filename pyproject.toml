@@ -5,7 +5,8 @@ description = "AI Video Summarizer API"
 requires-python = ">=3.13"
 
 dependencies = [
-    "fastapi"
+    "fastapi",
+    "httpx2"
 ]
 
 [dependency-groups]
