@@ -135,7 +135,7 @@ async def analyze(data: dict):
             "status": "success",
             "youtube_url": url,
             "api_status": int(response.status_code),
-            "transcript": response.json()
+            "transcript": transcript_data
         }
 
 
