@@ -1,11 +1,26 @@
 document.addEventListener("DOMContentLoaded", () => {
 
-    const videoUrlInput = document.getElementById("videoUrl");
-    const analyzeButton = document.getElementById("analyzeButton");
-    const statusElement = document.getElementById("status");
+    const videoUrlInput =
+        document.getElementById("videoUrl");
+
+    const analyzeButton =
+        document.getElementById("analyzeButton");
+
+    const statusElement =
+        document.getElementById("status");
+
 
     const API_URL =
         "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
+
+
+    // ==========================================
+    // CURRENT LANGUAGE
+    // ==========================================
+
+    let currentLanguage = "en";
+
+    let currentAIData = null;
 
 
     // ==========================================
@@ -14,13 +29,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function formatTime(seconds) {
 
-        seconds = Math.floor(Number(seconds) || 0);
+        seconds = Math.floor(
+            Number(seconds) || 0
+        );
 
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
+        const hours =
+            Math.floor(seconds / 3600);
+
+        const minutes =
+            Math.floor(
+                (seconds % 3600) / 60
+            );
+
+        const secs =
+            seconds % 60;
+
 
         if (hours > 0) {
+
             return (
                 String(hours).padStart(2, "0") +
                 ":" +
@@ -29,6 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 String(secs).padStart(2, "0")
             );
         }
+
 
         return (
             String(minutes).padStart(2, "0") +
@@ -54,78 +81,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
     // ==========================================
-    // PARSE AI SUMMARY
+    // GET LANGUAGE DATA
     // ==========================================
 
-    function parseAISummary(summary) {
+    function getLanguageData() {
 
-        const result = {
-            summary: "",
-            keyPoints: [],
-            takeaways: ""
-        };
-
-        if (!summary) {
-            return result;
+        if (!currentAIData) {
+            return null;
         }
 
 
-        // --------------------------------------
-        // SUMMARY
-        // --------------------------------------
-
-        const summaryMatch =
-            summary.match(
-                /SUMMARY:\s*([\s\S]*?)(?=\n\s*KEY POINTS:|$)/i
-            );
-
-        if (summaryMatch) {
-
-            result.summary =
-                summaryMatch[1].trim();
-        }
-
-
-        // --------------------------------------
-        // KEY POINTS
-        // --------------------------------------
-
-        const keyPointsMatch =
-            summary.match(
-                /KEY POINTS:\s*([\s\S]*?)(?=\n\s*TAKEAWAYS:|$)/i
-            );
-
-        if (keyPointsMatch) {
-
-            result.keyPoints =
-                keyPointsMatch[1]
-                    .split("\n")
-                    .map(point =>
-                        point
-                            .replace(/^\s*[-•*]\s*/, "")
-                            .trim()
-                    )
-                    .filter(point => point.length > 0);
-        }
-
-
-        // --------------------------------------
-        // TAKEAWAYS
-        // --------------------------------------
-
-        const takeawaysMatch =
-            summary.match(
-                /TAKEAWAYS:\s*([\s\S]*)/i
-            );
-
-        if (takeawaysMatch) {
-
-            result.takeaways =
-                takeawaysMatch[1].trim();
-        }
-
-
-        return result;
+        return (
+            currentAIData[currentLanguage] ||
+            currentAIData.en ||
+            currentAIData.id ||
+            null
+        );
     }
 
 
@@ -133,73 +104,149 @@ document.addEventListener("DOMContentLoaded", () => {
     // DISPLAY AI SUMMARY
     // ==========================================
 
-    function displayAISummary(summary) {
+    function displayAISummary() {
 
         const ai =
-            parseAISummary(summary);
+            getLanguageData();
 
 
-        let html = "";
+        if (!ai) {
+
+            return `
+                <div style="
+                    margin-top: 25px;
+                    padding: 20px;
+                    border-radius: 12px;
+                    background: #ffecec;
+                    border: 1px solid #ffb5b5;
+                ">
+                    ❌ AI Summary tidak tersedia.
+                </div>
+            `;
+        }
+
+
+        const summary =
+            ai.summary || "";
+
+
+        const keyPoints =
+            Array.isArray(ai.key_points)
+                ? ai.key_points
+                : [];
+
+
+        const takeaways =
+            ai.takeaways || "";
 
 
         // ======================================
-        // AI SUMMARY
+        // LANGUAGE BUTTON
         // ======================================
 
-        html += `
+        const languageButton =
+            currentLanguage === "en"
+                ? "🇬🇧 EN"
+                : "🇮🇩 ID";
+
+
+        let html = `
+
             <div style="
                 margin-top: 25px;
                 padding: 20px;
                 border-radius: 12px;
                 background: #eef6ff;
                 border: 1px solid #cfe3ff;
+                position: relative;
             ">
+
+
+                <!-- LANGUAGE SELECTOR -->
+
+                <div style="
+                    position: absolute;
+                    top: 15px;
+                    right: 15px;
+                ">
+
+                    <select
+                        id="languageSelector"
+                        style="
+                            padding: 7px 10px;
+                            border-radius: 8px;
+                            border: 1px solid #bbb;
+                            background: white;
+                            cursor: pointer;
+                            font-size: 14px;
+                        "
+                    >
+
+                        <option
+                            value="en"
+                            ${
+                                currentLanguage === "en"
+                                    ? "selected"
+                                    : ""
+                            }
+                        >
+                            🇬🇧 EN
+                        </option>
+
+                        <option
+                            value="id"
+                            ${
+                                currentLanguage === "id"
+                                    ? "selected"
+                                    : ""
+                            }
+                        >
+                            🇮🇩 ID
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+                <!-- SUMMARY -->
 
                 <h2>
                     🤖 AI Summary
                 </h2>
 
+
                 <p style="
                     line-height: 1.7;
                     white-space: pre-wrap;
+                    margin-top: 15px;
                 ">
-                    ${escapeHTML(
-                        ai.summary ||
-                        "Summary tidak tersedia."
-                    )}
+                    ${escapeHTML(summary)}
                 </p>
 
-            </div>
-        `;
 
+                <!-- KEY POINTS -->
 
-        // ======================================
-        // KEY POINTS
-        // ======================================
-
-        html += `
-            <div style="
-                margin-top: 20px;
-                padding: 20px;
-                border-radius: 12px;
-                background: #f7f7f7;
-                border: 1px solid #ddd;
-            ">
-
-                <h2>
-                    📌 Key Points
-                </h2>
-
-                <ul style="
-                    line-height: 1.8;
-                    padding-left: 25px;
+                <div style="
+                    margin-top: 25px;
+                    padding-top: 15px;
+                    border-top: 1px solid #d5e5f5;
                 ">
+
+                    <h3>
+                        📌 Key Points
+                    </h3>
+
+                    <ul style="
+                        line-height: 1.8;
+                        padding-left: 25px;
+                    ">
         `;
 
 
-        if (ai.keyPoints.length > 0) {
+        if (keyPoints.length > 0) {
 
-            ai.keyPoints.forEach(point => {
+            keyPoints.forEach(point => {
 
                 html += `
                     <li>
@@ -219,38 +266,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
         html += `
-                </ul>
 
-            </div>
-        `;
+                    </ul>
+
+                </div>
 
 
-        // ======================================
-        // TAKEAWAYS
-        // ======================================
+                <!-- TAKEAWAYS -->
 
-        html += `
-            <div style="
-                margin-top: 20px;
-                padding: 20px;
-                border-radius: 12px;
-                background: #fff8e8;
-                border: 1px solid #f0dfad;
-            ">
-
-                <h2>
-                    💡 Takeaways
-                </h2>
-
-                <p style="
-                    line-height: 1.7;
-                    white-space: pre-wrap;
+                <div style="
+                    margin-top: 25px;
+                    padding-top: 15px;
+                    border-top: 1px solid #d5e5f5;
                 ">
-                    ${escapeHTML(
-                        ai.takeaways ||
-                        "Takeaways tidak tersedia."
-                    )}
-                </p>
+
+                    <h3>
+                        💡 Takeaways
+                    </h3>
+
+                    <p style="
+                        line-height: 1.7;
+                        white-space: pre-wrap;
+                    ">
+                        ${escapeHTML(takeaways)}
+                    </p>
+
+                </div>
 
             </div>
         `;
@@ -296,6 +337,12 @@ document.addEventListener("DOMContentLoaded", () => {
             [];
 
 
+        // Save AI data
+
+        currentAIData =
+            data.summary;
+
+
         let html = "";
 
 
@@ -304,6 +351,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // ======================================
 
         html += `
+
             <div style="
                 margin-top: 25px;
                 padding: 20px;
@@ -316,11 +364,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 </h2>
 
                 <p>
-                    <strong>Language:</strong>
+                    <strong>Transcript Language:</strong>
                     ${escapeHTML(language)}
                 </p>
 
-                <hr>
         `;
 
 
@@ -328,9 +375,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // AI SUMMARY
         // ======================================
 
-        html += displayAISummary(
-            data.summary
-        );
+        html +=
+            displayAISummary();
 
 
         // ======================================
@@ -338,6 +384,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // ======================================
 
         html += `
+
                 <div style="
                     margin-top: 30px;
                 ">
@@ -345,6 +392,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <h2>
                         📝 Transcript
                     </h2>
+
         `;
 
 
@@ -369,6 +417,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
                 html += `
+
                     <div style="
                         display: flex;
                         gap: 15px;
@@ -391,20 +440,76 @@ document.addEventListener("DOMContentLoaded", () => {
                         </span>
 
                     </div>
+
                 `;
             });
         }
 
 
         html += `
+
                 </div>
 
             </div>
+
         `;
 
 
         statusElement.innerHTML =
             html;
+
+
+        // ======================================
+        // LANGUAGE SELECTOR EVENT
+        // ======================================
+
+        const languageSelector =
+            document.getElementById(
+                "languageSelector"
+            );
+
+
+        if (languageSelector) {
+
+            languageSelector.addEventListener(
+                "change",
+                () => {
+
+                    currentLanguage =
+                        languageSelector.value;
+
+
+                    updateAISummary();
+
+                }
+            );
+        }
+    }
+
+
+    // ==========================================
+    // UPDATE AI SUMMARY ONLY
+    // ==========================================
+
+    function updateAISummary() {
+
+        const oldSummary =
+            document.querySelector(
+                "#aiSummaryContainer"
+            );
+
+
+        if (!oldSummary) {
+
+            // Fallback:
+            displayTranscriptFromCurrentData();
+
+            return;
+        }
+
+
+        oldSummary.outerHTML =
+            displayAISummary();
     }
 
 
@@ -437,29 +542,34 @@ document.addEventListener("DOMContentLoaded", () => {
             // LOADING
             // ==================================
 
-            analyzeButton.disabled = true;
+            analyzeButton.disabled =
+                true;
 
             analyzeButton.innerText =
                 "Analyzing...";
 
 
             statusElement.innerHTML = `
+
                 <div style="
                     margin-top: 25px;
                     padding: 20px;
                     border-radius: 12px;
                     background: #f5f5f5;
                 ">
-                    ⏳ Mengambil transcript dan membuat
-                    AI summary...
+
+                    ⏳ Mengambil transcript
+                    dan membuat AI summary...
+
                 </div>
+
             `;
 
 
             try {
 
                 // ==============================
-                // CALL CLOUDFLARE API
+                // CALL API
                 // ==============================
 
                 const response =
@@ -470,13 +580,18 @@ document.addEventListener("DOMContentLoaded", () => {
                             method: "POST",
 
                             headers: {
+
                                 "Content-Type":
                                     "application/json"
+
                             },
 
                             body: JSON.stringify({
+
                                 url: url
+
                             })
+
                         }
                     );
 
@@ -486,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
                 // ==============================
-                // API ERROR
+                // ERROR
                 // ==============================
 
                 if (
@@ -501,6 +616,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
                     statusElement.innerHTML = `
+
                         <div style="
                             margin-top: 25px;
                             padding: 20px;
@@ -513,16 +629,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
                             <br><br>
 
-                            ${
-                                escapeHTML(
-                                    data.message ||
-                                    "Unknown error"
-                                )
-                            }
+                            ${escapeHTML(
+                                data.message ||
+                                "Unknown error"
+                            )}
 
                         </div>
-                    `;
 
+                    `;
 
                     return;
                 }
@@ -531,6 +645,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 // ==============================
                 // SUCCESS
                 // ==============================
+
+                currentLanguage = "en";
 
                 displayTranscript(data);
 
@@ -541,6 +657,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
                 statusElement.innerHTML = `
+
                     <div style="
                         margin-top: 25px;
                         padding: 20px;
@@ -554,9 +671,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         <br><br>
 
-                        ${escapeHTML(error.message)}
+                        ${escapeHTML(
+                            error.message
+                        )}
 
                     </div>
+
                 `;
 
             } finally {
