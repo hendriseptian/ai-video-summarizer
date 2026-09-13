@@ -1,11 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from workers import asgi, env
-from js import fetch
+from workers import asgi, fetch
 
 from urllib.parse import quote
-import json
 
 
 app = FastAPI(
@@ -26,7 +24,6 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-
     return {
         "status": "ok",
         "message": "AI Video Summarizer API is running on Cloudflare"
@@ -35,7 +32,6 @@ async def root():
 
 @app.get("/health")
 async def health():
-
     return {
         "status": "healthy"
     }
@@ -46,9 +42,9 @@ async def analyze(data: dict):
 
     try:
 
-        # =====================================
+        # ==============================
         # 1. GET YOUTUBE URL
-        # =====================================
+        # ==============================
 
         url = data.get("url")
 
@@ -60,28 +56,9 @@ async def analyze(data: dict):
             }
 
 
-        # =====================================
-        # 2. GET API KEY FROM CLOUDFLARE SECRET
-        # =====================================
-
-        api_key = getattr(
-            env,
-            "FREETRANSCRIPT_API_KEY",
-            None
-        )
-
-
-        if not api_key:
-
-            return {
-                "status": "error",
-                "message": "FREETRANSCRIPT_API_KEY is not configured"
-            }
-
-
-        # =====================================
-        # 3. BUILD FREETRANSCRIPT API URL
-        # =====================================
+        # ==============================
+        # 2. ENCODE URL
+        # ==============================
 
         encoded_url = quote(
             url,
@@ -89,80 +66,50 @@ async def analyze(data: dict):
         )
 
 
+        # ==============================
+        # 3. FREETRANSCRIPT API
+        # ==============================
+
         api_url = (
             "https://api.freetranscriptapi.com/v1/transcript"
             f"?video_url={encoded_url}"
         )
 
 
-        # =====================================
-        # 4. CALL FREETRANSCRIPT API
-        # =====================================
+        # ==============================
+        # 4. CALL API
+        # ==============================
 
         response = await fetch(
-            api_url,
-            {
-                "method": "GET",
-                "headers": {
-                    "Authorization": f"Bearer {api_key}",
-                    "Accept": "application/json"
-                }
-            }
+            api_url
         )
 
 
-        # =====================================
+        # ==============================
         # 5. READ RESPONSE
-        # =====================================
+        # ==============================
 
         response_text = await response.text()
 
 
-        # =====================================
-        # 6. API ERROR
-        # =====================================
-
-        if not response.ok:
-
-            return {
-                "status": "error",
-                "message": "FreeTranscriptAPI request failed",
-                "http_status": int(response.status),
-                "details": response_text
-            }
-
-
-        # =====================================
-        # 7. PARSE JSON
-        # =====================================
-
-        transcript_data = json.loads(
-            response_text
-        )
-
-
-        # =====================================
-        # 8. SUCCESS
-        # =====================================
+        # ==============================
+        # 6. RETURN RAW RESULT
+        # ==============================
 
         return {
             "status": "success",
-            "url": url,
-            "source": "YouTube",
-            "backend": "Cloudflare",
-            "transcript": transcript_data
+            "youtube_url": url,
+            "api_status": int(response.status),
+            "transcript_api_response": response_text
         }
 
 
     except Exception as error:
 
-        # =====================================
-        # DEBUG ERROR
-        # =====================================
-
         return {
             "status": "error",
             "message": "Worker exception",
+            "error_type": type(error).__name__,
             "error": str(error)
         }
 
