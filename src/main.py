@@ -298,11 +298,7 @@ Transcript:
         # 10. GET AI RESPONSE
         # ====================================================
 
-        ai_text = ai_response.get(
-            "response",
-            ""
-        )
-
+        ai_text = str(ai_response)
 
         # ====================================================
         # 11. RETURN RESULT
