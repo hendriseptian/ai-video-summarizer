@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from workers import asgi, env
 
-import httpx
+import httpx2 as httpx
 
 
 app = FastAPI(
