@@ -845,15 +845,99 @@ document.addEventListener("DOMContentLoaded", () => {
                             "
                         >
 
-                            ❌ Gagal menganalisis
-                            video.
+                            <h3 style="
+                                margin-top: 0;
+                                color: #d32f2f;
+                            ">
+                                ❌ Gagal menganalisis video
+                            </h3>
 
-                            <br><br>
 
-                            ${escapeHTML(
-                                data.message ||
-                                "Unknown error"
-                            )}
+                            <p>
+                                <strong>Message:</strong>
+                                ${escapeHTML(
+                                    data.message ||
+                                    "Unknown error"
+                                )}
+                            </p>
+
+
+                            ${
+                                data.error_type
+                                    ? `
+                                        <p>
+                                            <strong>Error Type:</strong>
+                                            ${escapeHTML(
+                                                data.error_type
+                                            )}
+                                        </p>
+                                    `
+                                    : ""
+                            }
+
+
+                            ${
+                                data.error
+                                    ? `
+                                        <p>
+                                            <strong>Detail Error:</strong>
+                                        </p>
+
+                                        <pre
+                                            style="
+                                                white-space: pre-wrap;
+                                                word-break: break-word;
+                                                background: #fff;
+                                                padding: 12px;
+                                                border-radius: 8px;
+                                                border: 1px solid #ddd;
+                                                font-size: 13px;
+                                            "
+                                        >
+${escapeHTML(data.error)}
+                                        </pre>
+                                    `
+                                    : ""
+                            }
+
+
+                            ${
+                                data.http_status
+                                    ? `
+                                        <p>
+                                            <strong>HTTP Status:</strong>
+                                            ${escapeHTML(
+                                                data.http_status
+                                            )}
+                                        </p>
+                                    `
+                                    : ""
+                            }
+
+
+                            ${
+                                data.details
+                                    ? `
+                                        <p>
+                                            <strong>API Details:</strong>
+                                        </p>
+
+                                        <pre
+                                            style="
+                                                white-space: pre-wrap;
+                                                word-break: break-word;
+                                                background: #fff;
+                                                padding: 12px;
+                                                border-radius: 8px;
+                                                border: 1px solid #ddd;
+                                                font-size: 13px;
+                                            "
+                                        >
+${escapeHTML(data.details)}
+                                        </pre>
+                                    `
+                                    : ""
+                            }
 
                         </div>
 
