@@ -1,79 +1,119 @@
-const analyzeButton = document.getElementById("analyzeButton");
-const videoUrlInput = document.getElementById("videoUrl");
-
-const status = document.getElementById("status");
-const videoInfo = document.getElementById("videoInfo");
-const transcript = document.getElementById("transcript");
+const API_URL =
+    "https://ai-video-summarizer.hendriseptian25.workers.dev";
 
 
-analyzeButton.addEventListener("click", function () {
+function getYouTubeId(url) {
+    try {
+        const parsed = new URL(url);
 
-    const videoUrl = videoUrlInput.value.trim();
+        if (parsed.hostname.includes("youtu.be")) {
+            return parsed.pathname.substring(1);
+        }
 
-    // Check empty URL
-    if (!videoUrl) {
+        if (parsed.hostname.includes("youtube.com")) {
+            return parsed.searchParams.get("v");
+        }
 
-        status.innerHTML = "Please enter a YouTube URL.";
+        return null;
+    } catch {
+        return null;
+    }
+}
 
+
+async function analyzeVideo() {
+
+    const urlInput = document.getElementById("videoUrl");
+    const url = urlInput.value.trim();
+
+    const result = document.getElementById("result");
+    const transcript = document.getElementById("transcript");
+
+    if (!url) {
+        alert("Please enter a YouTube URL.");
         return;
     }
 
+    const videoId = getYouTubeId(url);
 
-    // Check YouTube URL
-    if (
-        !videoUrl.includes("youtube.com") &&
-        !videoUrl.includes("youtu.be")
-    ) {
-
-        status.innerHTML = "Please enter a valid YouTube URL.";
-
+    if (!videoId) {
+        alert("Please enter a valid YouTube URL.");
         return;
     }
 
+    result.innerHTML = `
+        <p><strong>Status:</strong> Analyzing...</p>
+        <p><strong>URL:</strong> ${url}</p>
+    `;
 
-    // Show loading
-    status.innerHTML = "Analyzing video...";
+    transcript.innerHTML = `
+        <p>Connecting to AI Video Summarizer API...</p>
+    `;
 
-    analyzeButton.disabled = true;
-    analyzeButton.innerHTML = "PROCESSING...";
+    try {
+
+        const response = await fetch(`${API_URL}/analyze`, {
+
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+                url: url
+            })
+
+        });
 
 
-    // Temporary simulation
-    setTimeout(function () {
+        if (!response.ok) {
+            throw new Error(
+                `API returned HTTP ${response.status}`
+            );
+        }
 
-        status.innerHTML = "Analysis completed.";
 
-        videoInfo.innerHTML = `
-            <p>
-                <strong>URL:</strong>
-                ${videoUrl}
-            </p>
+        const data = await response.json();
 
-            <p>
-                <strong>Status:</strong>
-                Ready
-            </p>
 
-            <p>
-                <strong>Source:</strong>
-                YouTube
-            </p>
+        if (data.status !== "success") {
+            throw new Error(
+                data.message || "Analysis failed"
+            );
+        }
+
+
+        result.innerHTML = `
+            <p><strong>Status:</strong> Connected</p>
+            <p><strong>URL:</strong> ${data.url}</p>
+            <p><strong>Source:</strong> YouTube</p>
+            <p><strong>Backend:</strong> Cloudflare</p>
         `;
 
 
         transcript.innerHTML = `
-This is a V1 test transcript.
-
-The real YouTube transcript will be loaded
-after the backend is connected.
-
-V1 frontend is working correctly.
+            <p><strong>Backend connection successful.</strong></p>
+            <p>
+                YouTube video received successfully.
+                Real transcript extraction will be added next.
+            </p>
         `;
 
 
-        analyzeButton.disabled = false;
-        analyzeButton.innerHTML = "ANALYZE";
+    } catch (error) {
 
-    }, 1000);
+        console.error(error);
 
-});
+        result.innerHTML = `
+            <p><strong>Status:</strong> Error</p>
+            <p>${error.message}</p>
+        `;
+
+        transcript.innerHTML = `
+            <p>
+                Unable to connect to the backend.
+            </p>
+        `;
+    }
+}
