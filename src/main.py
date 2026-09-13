@@ -35,4 +35,21 @@ async def health():
     }
 
 
+@app.post("/analyze")
+async def analyze(data: dict):
+    url = data.get("url")
+
+    if not url:
+        return {
+            "status": "error",
+            "message": "YouTube URL is required"
+        }
+
+    return {
+        "status": "success",
+        "message": "Video URL received",
+        "url": url
+    }
+
+
 Default = asgi.entrypoint(app)
