@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AI Video Summarizer</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="container">
+
+        <header>
+            <h1>AI Video Summarizer</h1>
+            <p>Analyze and summarize online videos with AI</p>
+        </header>
+
+        <main>
+
+            <div class="card">
+
+                <label for="videoUrl">
+                    YouTube Video URL
+                </label>
+
+                <input
+                    type="text"
+                    id="videoUrl"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                >
+
+                <button id="analyzeButton">
+                    ANALYZE
+                </button>
+
+                <div id="status"></div>
+
+            </div>
+
+            <div class="result-card">
+
+                <h2>Video Information</h2>
+
+                <div id="videoInfo">
+                    <p>No video analyzed yet.</p>
+                </div>
+
+            </div>
+
+            <div class="transcript-card">
+
+                <h2>Transcript</h2>
+
+                <div id="transcript">
+                    <p>Transcript will appear here.</p>
+                </div>
+
+            </div>
+
+        </main>
+
+        <footer>
+            <p>AI Video Summarizer — V1</p>
+        </footer>
+
+    </div>
+
+    <script src="script.js"></script>
+
+</body>
+</html>
