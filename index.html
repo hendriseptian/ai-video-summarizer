@@ -1,74 +1,1797 @@
-<!DOCTYPE html>
-<html lang="en">
+from pathlib import Path
+import zipfile
+
+base = Path("/mnt/data/ai_media_monitoring_frontend_v1")
+base.mkdir(exist_ok=True)
+
+index_html = r'''<!DOCTYPE html>
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>AI Video Summarizer</title>
-
+    <meta name="theme-color" content="#0f172a">
+    <title>AI Media Monitoring & Analysis</title>
     <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
-
-    <div class="container">
-
-        <header>
-            <h1>AI Video Summarizer</h1>
-            <p>Analyze and summarize online videos with AI</p>
+    <div class="app-shell">
+        <header class="topbar">
+            <div>
+                <div class="eyebrow">AI MEDIA MONITORING</div>
+                <h1>Video Analysis</h1>
+                <p>Analisis pemberitaan berbasis transcript dan AI.</p>
+            </div>
+            <div class="topbar-badge">V1 • Individual Analysis</div>
         </header>
 
         <main>
-
-            <div class="card">
-
-                <label for="videoUrl">
-                    YouTube Video URL
-                </label>
-
-                <input
-                    type="text"
-                    id="videoUrl"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                >
-
-                <button id="analyzeButton">
-                    ANALYZE
-                </button>
-
-                <div id="status"></div>
-
-            </div>
-
-            <div class="result-card">
-
-                <h2>Video Information</h2>
-
-                <div id="videoInfo">
-                    <p>No video analyzed yet.</p>
+            <section class="input-card card">
+                <div class="section-title">
+                    <div>
+                        <h2>Analisis Video</h2>
+                        <p>Masukkan URL YouTube untuk memulai analisis.</p>
+                    </div>
                 </div>
 
-            </div>
-
-            <div class="transcript-card">
-
-                <h2>Transcript</h2>
-
-                <div id="transcript">
-                    <p>Transcript will appear here.</p>
+                <label for="videoUrl">YouTube Video URL</label>
+                <div class="input-row">
+                    <input
+                        type="url"
+                        id="videoUrl"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        autocomplete="off"
+                    >
+                    <button id="analyzeButton" class="primary-btn">ANALYZE</button>
                 </div>
 
-            </div>
+                <div id="status" aria-live="polite"></div>
+            </section>
 
+            <section id="results" class="results hidden">
+                <div class="result-toolbar">
+                    <div>
+                        <div class="eyebrow">ANALYSIS RESULT</div>
+                        <h2 id="resultHeading">Hasil Analisis</h2>
+                    </div>
+                    <div class="toolbar-actions">
+                        <button id="languageEN" class="lang-btn active">EN</button>
+                        <button id="languageID" class="lang-btn">ID</button>
+                        <button id="pdfButton" class="secondary-btn">EXPORT PDF</button>
+                    </div>
+                </div>
+
+                <section class="card video-card">
+                    <div class="video-main">
+                        <div class="video-icon">▶</div>
+                        <div>
+                            <div class="label">VIDEO TITLE</div>
+                            <h3 id="videoTitle">-</h3>
+                            <a id="videoLink" href="#" target="_blank" rel="noopener noreferrer">Open YouTube Video ↗</a>
+                        </div>
+                    </div>
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <span>Language</span>
+                            <strong id="videoLanguage">-</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span>Segments</span>
+                            <strong id="segmentCount">-</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span>Chunks</span>
+                            <strong id="chunkCount">-</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span>Transcript</span>
+                            <strong id="characterCount">-</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="analysis-grid">
+                    <article class="card analysis-card wide">
+                        <div class="card-heading">
+                            <span class="number">01</span>
+                            <div>
+                                <h3 id="summaryTitle">Summary</h3>
+                                <p>Ringkasan utama isi video.</p>
+                            </div>
+                        </div>
+                        <div id="summaryContent" class="rich-text">-</div>
+                    </article>
+
+                    <article class="card analysis-card">
+                        <div class="card-heading">
+                            <span class="number">02</span>
+                            <div>
+                                <h3 id="sentimentTitle">Sentiment</h3>
+                                <p>Sentimen pemberitaan.</p>
+                            </div>
+                        </div>
+                        <div id="sentimentContent">-</div>
+                    </article>
+
+                    <article class="card analysis-card">
+                        <div class="card-heading">
+                            <span class="number">03</span>
+                            <div>
+                                <h3 id="issueTitle">Isu Utama</h3>
+                                <p>Pokok persoalan yang menjadi perhatian.</p>
+                            </div>
+                        </div>
+                        <div id="issueContent" class="rich-text">-</div>
+                    </article>
+
+                    <article class="card analysis-card wide">
+                        <div class="card-heading">
+                            <span class="number">04</span>
+                            <div>
+                                <h3 id="keyPointsTitle">Key Points</h3>
+                                <p>Poin-poin penting yang muncul dalam video.</p>
+                            </div>
+                        </div>
+                        <div id="keyPointsContent">-</div>
+                    </article>
+
+                    <article class="card analysis-card wide">
+                        <div class="card-heading">
+                            <span class="number">05</span>
+                            <div>
+                                <h3 id="mediaAnalysisTitle">Analisis Media</h3>
+                                <p>Angle, aktor, posisi Pemprov Jawa Tengah, opini publik, dan key message.</p>
+                            </div>
+                        </div>
+                        <div id="mediaAnalysisContent">-</div>
+                    </article>
+
+                    <article class="card analysis-card">
+                        <div class="card-heading">
+                            <span class="number">06</span>
+                            <div>
+                                <h3 id="riskTitle">Risiko Komunikasi</h3>
+                                <p>Tingkat risiko dan potensi eskalasi.</p>
+                            </div>
+                        </div>
+                        <div id="riskContent">-</div>
+                    </article>
+
+                    <article class="card analysis-card">
+                        <div class="card-heading">
+                            <span class="number">07</span>
+                            <div>
+                                <h3 id="recommendationTitle">Rekomendasi</h3>
+                                <p>Opsi tindak lanjut komunikasi.</p>
+                            </div>
+                        </div>
+                        <div id="recommendationContent">-</div>
+                    </article>
+
+                    <article class="card analysis-card wide">
+                        <div class="card-heading">
+                            <span class="number">08</span>
+                            <div>
+                                <h3 id="criticalTitle">Critical Analysis</h3>
+                                <p>Observasi analitis. Inference digunakan untuk kesimpulan yang bersifat interpretatif.</p>
+                            </div>
+                        </div>
+                        <div id="criticalContent">-</div>
+                    </article>
+
+                    <article class="card analysis-card">
+                        <div class="card-heading">
+                            <span class="number">09</span>
+                            <div>
+                                <h3 id="implicationsTitle">Implications</h3>
+                                <p>Implikasi yang relevan terhadap komunikasi.</p>
+                            </div>
+                        </div>
+                        <div id="implicationsContent">-</div>
+                    </article>
+
+                    <article class="card analysis-card">
+                        <div class="card-heading">
+                            <span class="number">10</span>
+                            <div>
+                                <h3 id="takeawaysTitle">Takeaways</h3>
+                                <p>Inti yang perlu diperhatikan.</p>
+                            </div>
+                        </div>
+                        <div id="takeawaysContent" class="rich-text">-</div>
+                    </article>
+                </section>
+
+                <section class="card transcript-card">
+                    <div class="card-heading">
+                        <span class="number">T</span>
+                        <div>
+                            <h3>Transcript</h3>
+                            <p>Transcript asli dengan timestamp.</p>
+                        </div>
+                    </div>
+                    <div id="transcript" class="transcript-list">
+                        <div class="empty-state">Transcript akan muncul di sini.</div>
+                    </div>
+                </section>
+            </section>
         </main>
 
         <footer>
-            <p>AI Video Summarizer — V1</p>
+            <span>AI Media Monitoring & Analysis</span>
+            <span>Powered by Cloudflare Workers AI</span>
         </footer>
-
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="script.js"></script>
-
 </body>
 </html>
+'''
+
+style_css = r'''* {
+    box-sizing: border-box;
+}
+
+:root {
+    --bg: #f4f7fb;
+    --card: #ffffff;
+    --text: #172033;
+    --muted: #667085;
+    --border: #e5e9f0;
+    --primary: #173b7a;
+    --primary-dark: #102b59;
+    --soft: #eef4ff;
+    --success: #15803d;
+    --warning: #b45309;
+    --danger: #b42318;
+    --shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    line-height: 1.55;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+.app-shell {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 28px 28px 18px;
+}
+
+.topbar,
+.result-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.topbar {
+    margin-bottom: 24px;
+}
+
+.eyebrow,
+.label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    color: #74809a;
+}
+
+h1,
+h2,
+h3,
+p {
+    margin-top: 0;
+}
+
+h1 {
+    margin-bottom: 5px;
+    font-size: clamp(28px, 4vw, 40px);
+    letter-spacing: -.03em;
+}
+
+h2 {
+    margin-bottom: 5px;
+    font-size: 23px;
+}
+
+h3 {
+    margin-bottom: 2px;
+    font-size: 17px;
+}
+
+.topbar p,
+.section-title p,
+.card-heading p {
+    color: var(--muted);
+    margin-bottom: 0;
+}
+
+.topbar-badge {
+    padding: 9px 13px;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 999px;
+    color: #536079;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+}
+
+.input-card {
+    padding: 22px;
+    margin-bottom: 24px;
+}
+
+.input-card label {
+    display: block;
+    margin: 18px 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.input-row {
+    display: flex;
+    gap: 10px;
+}
+
+.input-row input {
+    min-width: 0;
+    flex: 1;
+    height: 48px;
+    border: 1px solid #cfd6e2;
+    border-radius: 10px;
+    padding: 0 14px;
+    outline: none;
+    color: var(--text);
+    background: #fff;
+}
+
+.input-row input:focus {
+    border-color: #7b98ca;
+    box-shadow: 0 0 0 3px rgba(23, 59, 122, .09);
+}
+
+button {
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: .18s ease;
+}
+
+button:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.primary-btn {
+    min-width: 130px;
+    padding: 0 20px;
+    background: var(--primary);
+    color: #fff;
+    font-weight: 800;
+}
+
+.primary-btn:hover:not(:disabled) {
+    background: var(--primary-dark);
+}
+
+.secondary-btn,
+.lang-btn {
+    background: #fff;
+    border: 1px solid var(--border);
+    color: #344054;
+    font-weight: 700;
+}
+
+.secondary-btn {
+    padding: 9px 13px;
+}
+
+.lang-btn {
+    padding: 8px 11px;
+    font-size: 12px;
+}
+
+.lang-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+#status {
+    margin-top: 12px;
+}
+
+.status-box {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+}
+
+.status-loading {
+    background: #eef4ff;
+    border: 1px solid #d8e5ff;
+    color: #244b89;
+}
+
+.status-error {
+    background: #fff0ef;
+    border: 1px solid #ffd2cf;
+    color: var(--danger);
+}
+
+.status-success {
+    background: #edf9f0;
+    border: 1px solid #ccebd4;
+    color: var(--success);
+}
+
+.hidden {
+    display: none !important;
+}
+
+.results {
+    animation: fadeIn .25s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.result-toolbar {
+    align-items: center;
+    margin: 8px 0 16px;
+}
+
+.toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.video-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 22px;
+    padding: 20px;
+    margin-bottom: 16px;
+}
+
+.video-main {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.video-icon {
+    width: 48px;
+    height: 48px;
+    flex: 0 0 48px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--soft);
+    color: var(--primary);
+    font-size: 17px;
+}
+
+#videoTitle {
+    margin: 4px 0 4px;
+    font-size: 18px;
+    line-height: 1.35;
+}
+
+#videoLink {
+    color: #3562a4;
+    font-size: 12px;
+    text-decoration: none;
+}
+
+#videoLink:hover {
+    text-decoration: underline;
+}
+
+.meta-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(90px, 1fr));
+    gap: 8px;
+}
+
+.meta-item {
+    min-width: 90px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fafbfd;
+}
+
+.meta-item span {
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.meta-item strong {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+}
+
+.analysis-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.analysis-card {
+    min-width: 0;
+    padding: 20px;
+}
+
+.analysis-card.wide {
+    grid-column: 1 / -1;
+}
+
+.card-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.number {
+    width: 31px;
+    height: 31px;
+    flex: 0 0 31px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: var(--soft);
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.rich-text {
+    white-space: pre-wrap;
+    color: #2b3445;
+}
+
+.content-list {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.content-list li {
+    margin: 0 0 9px;
+    color: #2b3445;
+}
+
+.content-list li:last-child {
+    margin-bottom: 0;
+}
+
+.sub-block {
+    padding: 13px 14px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: #fbfcfe;
+    margin-bottom: 10px;
+}
+
+.sub-block:last-child {
+    margin-bottom: 0;
+}
+
+.sub-label {
+    display: block;
+    margin-bottom: 5px;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.badge-positive {
+    background: #eaf8ee;
+    color: #137333;
+}
+
+.badge-negative {
+    background: #fff0ef;
+    color: #b42318;
+}
+
+.badge-neutral {
+    background: #f0f2f5;
+    color: #525866;
+}
+
+.badge-low {
+    background: #eaf8ee;
+    color: #137333;
+}
+
+.badge-medium {
+    background: #fff5e6;
+    color: #a15c00;
+}
+
+.badge-high {
+    background: #fff0ef;
+    color: #b42318;
+}
+
+.inference {
+    border-left: 3px solid #7a91b7;
+    padding-left: 11px;
+}
+
+.transcript-card {
+    margin-top: 16px;
+    padding: 20px;
+}
+
+.transcript-list {
+    max-height: 560px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: #fbfcfe;
+}
+
+.transcript-row {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 12px;
+    padding: 9px 12px;
+    border-bottom: 1px solid #edf0f4;
+}
+
+.transcript-row:last-child {
+    border-bottom: 0;
+}
+
+.timestamp {
+    color: #52627b;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.transcript-text {
+    color: #313b4e;
+    font-size: 13px;
+}
+
+.empty-state {
+    padding: 25px;
+    color: var(--muted);
+    text-align: center;
+    font-size: 13px;
+}
+
+.error-details {
+    margin-top: 8px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #f0c7c4;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+}
+
+footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 15px;
+    padding: 22px 4px 5px;
+    color: #8a94a6;
+    font-size: 11px;
+}
+
+@media (max-width: 950px) {
+    .video-card {
+        grid-template-columns: 1fr;
+    }
+
+    .meta-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 720px) {
+    .app-shell {
+        padding: 18px 14px;
+    }
+
+    .topbar,
+    .result-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .input-row {
+        flex-direction: column;
+    }
+
+    .primary-btn {
+        height: 46px;
+    }
+
+    .analysis-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .analysis-card.wide {
+        grid-column: auto;
+    }
+
+    .toolbar-actions {
+        justify-content: flex-start;
+    }
+
+    footer {
+        flex-direction: column;
+    }
+}
+'''
+
+script_js = r'''document.addEventListener("DOMContentLoaded", () => {
+    const videoUrlInput = document.getElementById("videoUrl");
+    const analyzeButton = document.getElementById("analyzeButton");
+    const statusElement = document.getElementById("status");
+    const resultsElement = document.getElementById("results");
+
+    const languageEN = document.getElementById("languageEN");
+    const languageID = document.getElementById("languageID");
+    const pdfButton = document.getElementById("pdfButton");
+
+    // =========================================================
+    // API
+    // =========================================================
+
+    const API_URL =
+        "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
+
+    // =========================================================
+    // STATE
+    // =========================================================
+
+    let currentLanguage = "en";
+    let currentResponse = null;
+    let currentAIData = null;
+    let currentVideoData = null;
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
+    function escapeHTML(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function asText(value) {
+        if (value === null || value === undefined) {
+            return "";
+        }
+
+        if (typeof value === "string" || typeof value === "number") {
+            return String(value).trim();
+        }
+
+        return "";
+    }
+
+    function asArray(value) {
+        if (Array.isArray(value)) {
+            return value.filter(
+                item => item !== null && item !== undefined
+            );
+        }
+
+        if (typeof value === "string" && value.trim()) {
+            return [value.trim()];
+        }
+
+        return [];
+    }
+
+    function formatTime(seconds) {
+        let total = Math.floor(Number(seconds) || 0);
+
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const secs = total % 60;
+
+        if (hours > 0) {
+            return (
+                String(hours).padStart(2, "0") +
+                ":" +
+                String(minutes).padStart(2, "0") +
+                ":" +
+                String(secs).padStart(2, "0")
+            );
+        }
+
+        return (
+            String(minutes).padStart(2, "0") +
+            ":" +
+            String(secs).padStart(2, "0")
+        );
+    }
+
+    function formatNumber(value) {
+        const number = Number(value);
+
+        if (!Number.isFinite(number)) {
+            return "-";
+        }
+
+        return number.toLocaleString("id-ID");
+    }
+
+    function showStatus(type, message, detail = "") {
+        const className =
+            type === "error"
+                ? "status-error"
+                : type === "success"
+                    ? "status-success"
+                    : "status-loading";
+
+        statusElement.innerHTML = `
+            <div class="status-box ${className}">
+                ${escapeHTML(message)}
+                ${
+                    detail
+                        ? `<div class="error-details">${escapeHTML(detail)}</div>`
+                        : ""
+                }
+            </div>
+        `;
+    }
+
+    function normalizeUrl(url) {
+        return String(url || "").trim();
+    }
+
+    // =========================================================
+    // AI DATA EXTRACTION
+    // =========================================================
+
+    function extractAIData(data) {
+        if (!data || typeof data !== "object") {
+            return null;
+        }
+
+        const candidates = [
+            data.ai,
+            data.analysis,
+            data.result,
+            data.summary,
+            data.data?.ai,
+            data.data?.analysis,
+            data.data?.result,
+            data.response?.ai,
+            data.response?.analysis,
+            data.output
+        ];
+
+        for (const candidate of candidates) {
+            if (
+                candidate &&
+                typeof candidate === "object" &&
+                (
+                    candidate.en ||
+                    candidate.id ||
+                    candidate.summary ||
+                    candidate.key_points ||
+                    candidate.sentiment ||
+                    candidate.main_issue
+                )
+            ) {
+                return candidate;
+            }
+        }
+
+        // Recursive fallback for unexpected response wrappers.
+        const visited = new Set();
+
+        function walk(object, depth = 0) {
+            if (!object || typeof object !== "object" || depth > 5) {
+                return null;
+            }
+
+            if (visited.has(object)) {
+                return null;
+            }
+
+            visited.add(object);
+
+            if (
+                object.en ||
+                object.id ||
+                object.summary ||
+                object.key_points ||
+                object.sentiment ||
+                object.main_issue
+            ) {
+                return object;
+            }
+
+            for (const value of Object.values(object)) {
+                if (value && typeof value === "object") {
+                    const found = walk(value, depth + 1);
+
+                    if (found) {
+                        return found;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        return walk(data);
+    }
+
+    function getLanguageData() {
+        if (!currentAIData) {
+            return null;
+        }
+
+        if (
+            currentAIData[currentLanguage] &&
+            typeof currentAIData[currentLanguage] === "object"
+        ) {
+            return currentAIData[currentLanguage];
+        }
+
+        if (
+            currentAIData.en &&
+            typeof currentAIData.en === "object"
+        ) {
+            return currentAIData.en;
+        }
+
+        if (
+            currentAIData.id &&
+            typeof currentAIData.id === "object"
+        ) {
+            return currentAIData.id;
+        }
+
+        return currentAIData;
+    }
+
+    // =========================================================
+    // GENERIC CONTENT RENDERERS
+    // =========================================================
+
+    function renderText(value, fallback = "-") {
+        const text = asText(value);
+
+        if (!text) {
+            return `<span class="empty-state">${escapeHTML(fallback)}</span>`;
+        }
+
+        const safe = escapeHTML(text);
+
+        if (text.startsWith("Inference:")) {
+            return `<div class="inference">${safe}</div>`;
+        }
+
+        return `<div class="rich-text">${safe}</div>`;
+    }
+
+    function renderList(value, fallback = "Tidak ada data.") {
+        const items = asArray(value)
+            .map(item => {
+                if (typeof item === "object") {
+                    if (item.text) {
+                        return asText(item.text);
+                    }
+
+                    if (item.title && item.reason) {
+                        return `${asText(item.title)} — ${asText(item.reason)}`;
+                    }
+
+                    return JSON.stringify(item);
+                }
+
+                return asText(item);
+            })
+            .filter(Boolean);
+
+        if (!items.length) {
+            return `<span class="empty-state">${escapeHTML(fallback)}</span>`;
+        }
+
+        return `
+            <ul class="content-list">
+                ${items
+                    .map(item => `<li>${escapeHTML(item)}</li>`)
+                    .join("")}
+            </ul>
+        `;
+    }
+
+    function renderObjectBlocks(value) {
+        if (!value) {
+            return `<span class="empty-state">Tidak ada data.</span>`;
+        }
+
+        if (typeof value === "string") {
+            return renderText(value);
+        }
+
+        if (Array.isArray(value)) {
+            return renderList(value);
+        }
+
+        if (typeof value !== "object") {
+            return renderText(value);
+        }
+
+        const preferredOrder = [
+            "angle",
+            "dominant_angle",
+            "media_angle",
+            "highlighted_actors",
+            "actors",
+            "pemprov_jateng_position",
+            "public_opinion_potential",
+            "key_messages",
+            "reason",
+            "escalation_potential",
+            "level",
+            "amplification",
+            "clarification",
+            "counter_narrative",
+            "media_engagement",
+            "continued_monitoring"
+        ];
+
+        const keys = [
+            ...preferredOrder.filter(key => key in value),
+            ...Object.keys(value).filter(
+                key => !preferredOrder.includes(key)
+            )
+        ];
+
+        if (!keys.length) {
+            return `<span class="empty-state">Tidak ada data.</span>`;
+        }
+
+        return keys
+            .map(key => {
+                const val = value[key];
+
+                const label = key
+                    .replace(/_/g, " ")
+                    .replace(/\b\w/g, char => char.toUpperCase());
+
+                let body = "";
+
+                if (Array.isArray(val)) {
+                    body = renderList(val);
+                } else if (val && typeof val === "object") {
+                    body = renderObjectBlocks(val);
+                } else {
+                    body = escapeHTML(asText(val) || "-");
+                }
+
+                return `
+                    <div class="sub-block">
+                        <span class="sub-label">${escapeHTML(label)}</span>
+                        ${body}
+                    </div>
+                `;
+            })
+            .join("");
+    }
+
+    // =========================================================
+    // SENTIMENT / RISK
+    // =========================================================
+
+    function normalizeSentiment(value) {
+        const text = asText(value).toLowerCase();
+
+        if (text.includes("positive") || text.includes("positif")) {
+            return "positive";
+        }
+
+        if (text.includes("negative") || text.includes("negatif")) {
+            return "negative";
+        }
+
+        return "neutral";
+    }
+
+    function sentimentLabel(value) {
+        const normalized = normalizeSentiment(value);
+
+        const labels = {
+            en: {
+                positive: "Positive",
+                negative: "Negative",
+                neutral: "Neutral"
+            },
+            id: {
+                positive: "Positif",
+                negative: "Negatif",
+                neutral: "Netral"
+            }
+        };
+
+        return labels[currentLanguage][normalized];
+    }
+
+    function renderSentiment(value) {
+        const normalized = normalizeSentiment(value);
+
+        return `
+            <span class="badge badge-${normalized}">
+                ${escapeHTML(sentimentLabel(value))}
+            </span>
+        `;
+    }
+
+    function normalizeRisk(value) {
+        const text = asText(value).toLowerCase();
+
+        if (text.includes("high") || text.includes("tinggi")) {
+            return "high";
+        }
+
+        if (text.includes("medium") || text.includes("sedang")) {
+            return "medium";
+        }
+
+        return "low";
+    }
+
+    function riskLabel(value) {
+        const normalized = normalizeRisk(value);
+
+        const labels = {
+            en: {
+                low: "Low",
+                medium: "Medium",
+                high: "High"
+            },
+            id: {
+                low: "Rendah",
+                medium: "Sedang",
+                high: "Tinggi"
+            }
+        };
+
+        return labels[currentLanguage][normalized];
+    }
+
+    function renderRisk(value) {
+        if (!value) {
+            return `<span class="empty-state">Tidak ada data.</span>`;
+        }
+
+        if (typeof value === "string") {
+            return `
+                <span class="badge badge-${normalizeRisk(value)}">
+                    ${escapeHTML(riskLabel(value))}
+                </span>
+            `;
+        }
+
+        if (typeof value === "object") {
+            const level = value.level || value.risk_level || "low";
+
+            return `
+                <div style="margin-bottom:12px;">
+                    <span class="badge badge-${normalizeRisk(level)}">
+                        ${escapeHTML(riskLabel(level))}
+                    </span>
+                </div>
+                ${renderObjectBlocks(value)}
+            `;
+        }
+
+        return "-";
+    }
+
+    // =========================================================
+    // RECOMMENDATIONS
+    // =========================================================
+
+    function renderRecommendations(value) {
+        if (!value) {
+            return `<span class="empty-state">Tidak ada rekomendasi.</span>`;
+        }
+
+        if (Array.isArray(value)) {
+            return renderList(value);
+        }
+
+        if (typeof value === "string") {
+            return renderText(value);
+        }
+
+        if (typeof value === "object") {
+            return renderObjectBlocks(value);
+        }
+
+        return "-";
+    }
+
+    // =========================================================
+    // MEDIA ANALYSIS
+    // =========================================================
+
+    function getFirst(ai, keys, fallback = "") {
+        for (const key of keys) {
+            if (ai && ai[key] !== undefined && ai[key] !== null) {
+                if (Array.isArray(ai[key])) {
+                    if (ai[key].length) {
+                        return ai[key];
+                    }
+                } else if (String(ai[key]).trim()) {
+                    return ai[key];
+                }
+            }
+        }
+
+        return fallback;
+    }
+
+    function renderMediaAnalysis(ai) {
+        const direct = getFirst(
+            ai,
+            ["media_analysis", "mediaAnalysis"],
+            null
+        );
+
+        if (direct) {
+            return renderObjectBlocks(direct);
+        }
+
+        const assembled = {
+            angle: getFirst(
+                ai,
+                ["media_angle", "angle", "dominant_angle"],
+                ""
+            ),
+            highlighted_actors: getFirst(
+                ai,
+                ["highlighted_actors", "actors"],
+                []
+            ),
+            pemprov_jateng_position: getFirst(
+                ai,
+                ["pemprov_jateng_position", "pemprov_position"],
+                ""
+            ),
+            public_opinion_potential: getFirst(
+                ai,
+                ["public_opinion_potential", "opinion_potential"],
+                ""
+            ),
+            key_messages: getFirst(
+                ai,
+                ["key_messages", "key_message"],
+                []
+            )
+        };
+
+        return renderObjectBlocks(assembled);
+    }
+
+    // =========================================================
+    // RENDER ANALYSIS
+    // =========================================================
+
+    function renderAnalysis() {
+        const ai = getLanguageData();
+
+        if (!ai) {
+            return;
+        }
+
+        document.getElementById("summaryContent").innerHTML =
+            renderText(ai.summary);
+
+        document.getElementById("keyPointsContent").innerHTML =
+            renderList(ai.key_points);
+
+        document.getElementById("takeawaysContent").innerHTML =
+            renderText(ai.takeaways);
+
+        document.getElementById("criticalContent").innerHTML =
+            renderList(ai.critical_analysis);
+
+        document.getElementById("implicationsContent").innerHTML =
+            renderList(ai.implications);
+
+        document.getElementById("sentimentContent").innerHTML =
+            renderSentiment(ai.sentiment);
+
+        document.getElementById("issueContent").innerHTML =
+            renderText(ai.main_issue || ai.issue);
+
+        document.getElementById("mediaAnalysisContent").innerHTML =
+            renderMediaAnalysis(ai);
+
+        document.getElementById("riskContent").innerHTML =
+            renderRisk(
+                ai.communication_risk ||
+                ai.communicationRisk ||
+                ai.risk
+            );
+
+        document.getElementById("recommendationContent").innerHTML =
+            renderRecommendations(
+                ai.recommendations ||
+                ai.recommendation
+            );
+    }
+
+    // =========================================================
+    // UI LANGUAGE
+    // =========================================================
+
+    function updateStaticLanguage() {
+        const id = currentLanguage === "id";
+
+        document.getElementById("summaryTitle").textContent =
+            id ? "Ringkasan" : "Summary";
+
+        document.getElementById("keyPointsTitle").textContent =
+            id ? "Poin Utama" : "Key Points";
+
+        document.getElementById("takeawaysTitle").textContent =
+            id ? "Kesimpulan Utama" : "Takeaways";
+
+        document.getElementById("sentimentTitle").textContent =
+            id ? "Sentimen" : "Sentiment";
+
+        document.getElementById("issueTitle").textContent =
+            id ? "Isu Utama" : "Main Issue";
+
+        document.getElementById("mediaAnalysisTitle").textContent =
+            id ? "Analisis Media" : "Media Analysis";
+
+        document.getElementById("riskTitle").textContent =
+            id ? "Risiko Komunikasi" : "Communication Risk";
+
+        document.getElementById("recommendationTitle").textContent =
+            id ? "Rekomendasi" : "Recommendations";
+
+        document.getElementById("criticalTitle").textContent =
+            id ? "Analisis Kritis" : "Critical Analysis";
+
+        document.getElementById("implicationsTitle").textContent =
+            id ? "Implikasi" : "Implications";
+
+        languageEN.classList.toggle("active", currentLanguage === "en");
+        languageID.classList.toggle("active", currentLanguage === "id");
+
+        renderAnalysis();
+    }
+
+    languageEN.addEventListener("click", () => {
+        currentLanguage = "en";
+        updateStaticLanguage();
+    });
+
+    languageID.addEventListener("click", () => {
+        currentLanguage = "id";
+        updateStaticLanguage();
+    });
+
+    // =========================================================
+    // VIDEO INFO
+    // =========================================================
+
+    function renderVideoInfo(data) {
+        currentVideoData = data;
+
+        const video = data.video || {};
+        const transcript = data.transcript || {};
+        const processing = data.processing || {};
+
+        const title =
+            transcript.title ||
+            video.title ||
+            data.title ||
+            "Untitled Video";
+
+        const url =
+            video.url ||
+            data.youtube_url ||
+            data.url ||
+            "";
+
+        document.getElementById("videoTitle").textContent = title;
+
+        const link = document.getElementById("videoLink");
+        link.href = url || "#";
+
+        document.getElementById("videoLanguage").textContent =
+            transcript.language ||
+            data.language ||
+            "-";
+
+        document.getElementById("segmentCount").textContent =
+            formatNumber(
+                processing.total_segments ??
+                transcript.transcript?.length ??
+                0
+            );
+
+        document.getElementById("chunkCount").textContent =
+            formatNumber(
+                processing.total_chunks ??
+                0
+            );
+
+        document.getElementById("characterCount").textContent =
+            formatNumber(
+                processing.transcript_characters ??
+                0
+            );
+
+        document.getElementById("resultHeading").textContent = title;
+    }
+
+    // =========================================================
+    // TRANSCRIPT
+    // =========================================================
+
+    function getTranscriptSegments(data) {
+        const transcript = data?.transcript;
+
+        if (Array.isArray(transcript?.transcript)) {
+            return transcript.transcript;
+        }
+
+        if (Array.isArray(transcript)) {
+            return transcript;
+        }
+
+        if (Array.isArray(data?.segments)) {
+            return data.segments;
+        }
+
+        if (Array.isArray(data?.transcript_data?.transcript)) {
+            return data.transcript_data.transcript;
+        }
+
+        return [];
+    }
+
+    function renderTranscript(data) {
+        const container = document.getElementById("transcript");
+        const segments = getTranscriptSegments(data);
+
+        if (!segments.length) {
+            container.innerHTML =
+                `<div class="empty-state">Transcript tidak tersedia.</div>`;
+            return;
+        }
+
+        container.innerHTML = segments
+            .map(segment => {
+                const start = formatTime(segment.start);
+                const text = asText(segment.text);
+
+                return `
+                    <div class="transcript-row">
+                        <div class="timestamp">${escapeHTML(start)}</div>
+                        <div class="transcript-text">${escapeHTML(text)}</div>
+                    </div>
+                `;
+            })
+            .join("");
+    }
+
+    // =========================================================
+    // PDF
+    // =========================================================
+
+    function plainText(value) {
+        if (Array.isArray(value)) {
+            return value
+                .map(item => plainText(item))
+                .filter(Boolean)
+                .join("\n• ");
+        }
+
+        if (value && typeof value === "object") {
+            return Object.entries(value)
+                .map(([key, val]) => {
+                    const label = key
+                        .replace(/_/g, " ")
+                        .replace(/\b\w/g, c => c.toUpperCase());
+
+                    return `${label}: ${plainText(val)}`;
+                })
+                .join("\n");
+        }
+
+        return asText(value);
+    }
+
+    function exportPDF() {
+        if (!currentResponse) {
+            return;
+        }
+
+        if (!window.jspdf || !window.jspdf.jsPDF) {
+            alert("PDF library belum tersedia.");
+            return;
+        }
+
+        const ai = getLanguageData();
+
+        if (!ai) {
+            alert("Hasil AI belum tersedia.");
+            return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({
+            unit: "mm",
+            format: "a4"
+        });
+
+        const title =
+            currentVideoData?.transcript?.title ||
+            currentVideoData?.video?.title ||
+            "AI Media Monitoring Analysis";
+
+        let y = 18;
+        const left = 15;
+        const width = 180;
+
+        function addSection(titleText, content) {
+            if (!content) {
+                return;
+            }
+
+            if (y > 265) {
+                doc.addPage();
+                y = 18;
+            }
+
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(12);
+            doc.text(titleText, left, y);
+
+            y += 7;
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9);
+
+            const lines = doc.splitTextToSize(
+                plainText(content),
+                width
+            );
+
+            for (const line of lines) {
+                if (y > 285) {
+                    doc.addPage();
+                    y = 18;
+                }
+
+                doc.text(line, left, y);
+                y += 4.5;
+            }
+
+            y += 4;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.text("AI Media Monitoring", left, y);
+
+        y += 8;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.text(title, left, y);
+
+        y += 9;
+
+        addSection("Summary", ai.summary);
+        addSection("Sentiment", ai.sentiment);
+        addSection("Main Issue", ai.main_issue || ai.issue);
+        addSection("Key Points", ai.key_points);
+        addSection("Media Analysis", ai.media_analysis);
+        addSection(
+            "Communication Risk",
+            ai.communication_risk || ai.communicationRisk
+        );
+        addSection("Recommendations", ai.recommendations);
+        addSection("Critical Analysis", ai.critical_analysis);
+        addSection("Implications", ai.implications);
+        addSection("Takeaways", ai.takeaways);
+
+        const filename =
+            "AI_Media_Analysis_" +
+            title
+                .replace(/[^a-z0-9]+/gi, "_")
+                .replace(/^_+|_+$/g, "")
+                .slice(0, 80) +
+            ".pdf";
+
+        doc.save(filename || "AI_Media_Analysis.pdf");
+    }
+
+    pdfButton.addEventListener("click", exportPDF);
+
+    // =========================================================
+    // ANALYZE
+    // =========================================================
+
+    analyzeButton.addEventListener("click", analyzeVideo);
+
+    videoUrlInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            analyzeVideo();
+        }
+    });
+
+    async function analyzeVideo() {
+        const url = normalizeUrl(videoUrlInput.value);
+
+        if (!url) {
+            showStatus(
+                "error",
+                "Masukkan URL YouTube terlebih dahulu."
+            );
+            videoUrlInput.focus();
+            return;
+        }
+
+        analyzeButton.disabled = true;
+        analyzeButton.textContent = "ANALYZING...";
+        resultsElement.classList.add("hidden");
+
+        showStatus(
+            "loading",
+            "Sedang mengambil transcript dan menjalankan analisis AI..."
+        );
+
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    url: url
+                })
+            });
+
+            let data;
+
+            try {
+                data = await response.json();
+            } catch {
+                throw new Error(
+                    `Server mengembalikan response yang bukan JSON. HTTP ${response.status}`
+                );
+            }
+
+            if (
+                !response.ok ||
+                data.status !== "success"
+            ) {
+                const detail =
+                    data.error ||
+                    data.details ||
+                    data.message ||
+                    `HTTP ${response.status}`;
+
+                throw new Error(detail);
+            }
+
+            const ai = extractAIData(data);
+
+            if (!ai) {
+                console.error("AI data tidak ditemukan:", data);
+                throw new Error(
+                    "Hasil AI tidak ditemukan dalam response server."
+                );
+            }
+
+            currentResponse = data;
+            currentAIData = ai;
+            currentLanguage = "en";
+
+            renderVideoInfo(data);
+            renderTranscript(data);
+            updateStaticLanguage();
+
+            resultsElement.classList.remove("hidden");
+
+            showStatus(
+                "success",
+                "Analisis selesai."
+            );
+
+            window.scrollTo({
+                top: resultsElement.offsetTop - 15,
+                behavior: "smooth"
+            });
+        } catch (error) {
+            console.error("Frontend Error:", error);
+
+            showStatus(
+                "error",
+                "Gagal menganalisis video.",
+                error.message || String(error)
+            );
+        } finally {
+            analyzeButton.disabled = false;
+            analyzeButton.textContent = "ANALYZE";
+        }
+    }
+});
+'''
+
+(base / "index.html").write_text(index_html, encoding="utf-8")
+(base / "style.css").write_text(style_css, encoding="utf-8")
+(base / "script.js").write_text(script_js, encoding="utf-8")
+
+zip_path = Path("/mnt/data/ai_media_monitoring_frontend_v1.zip")
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    for file in base.iterdir():
+        z.write(file, file.name)
+
+print(f"Created: {zip_path}")
+print("Files:")
+for file in base.iterdir():
+    print(f"- {file.name}: {file.stat().st_size:,} bytes")
