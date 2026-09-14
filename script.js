@@ -2348,11 +2348,9 @@ function renderTranscript(
     ) {
 
         transcriptElement.innerHTML = `
-
             <p>
                 Transcript is not available.
             </p>
-
         `;
 
         return;
@@ -2380,31 +2378,30 @@ function renderTranscript(
 
 
                     return `
-
                         <div
                             class="transcript-row"
                             data-index="${index}"
                         >
 
-                            <div class="transcript-time">
-
+                            <div
+                                class="transcript-time"
+                            >
                                 ${
                                     formatTimestamp(
                                         start
                                     )
                                 }
-
                             </div>
 
 
-                            <div class="transcript-text">
-
+                            <div
+                                class="transcript-text"
+                            >
                                 ${
                                     escapeHtml(
                                         text
                                     )
                                 }
-
                             </div>
 
                         </div>
@@ -2416,24 +2413,25 @@ function renderTranscript(
 
     transcriptElement.innerHTML = `
 
-        <div class="transcript-toolbar">
+        <div
+            class="transcript-toolbar"
+        >
 
             <span>
-
                 ${
                     transcriptData
                         .transcript
                         .length
                 }
-
                 segments
-
             </span>
 
         </div>
 
 
-        <div class="transcript-scroll">
+        <div
+            class="transcript-scroll"
+        >
 
             ${rows}
 
