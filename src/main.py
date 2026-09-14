@@ -235,54 +235,350 @@ Do not turn interpretation into a key point.
 Do not include unsupported explanations.
 
 ============================================================
-CRITICAL ANALYSIS
+4. CRITICAL ANALYSIS
 ============================================================
 
-Analyze the transcript critically.
+Critical analysis may interpret the transcript, but the analysis
+must remain directly grounded in the transcript.
 
-Possible areas include:
+Critical analysis is NOT permission to speculate freely.
 
-- gaps in information
+Every analytical statement MUST be traceable to information
+explicitly present in the transcript.
+
+Every item MUST begin with:
+
+"Inference:"
+
+============================================================
+ALLOWED CRITICAL ANALYSIS
+============================================================
+
+Critical analysis may identify:
+
+- information gaps
 - unclear statements
-- contradictions within the transcript
-- missing context
-- unsupported claims made by speakers
+- contradictions explicitly present in the transcript
+- differences between statements in the transcript
+- claims that are presented without supporting details
 - limitations of the information presented
-- logical relationships that can reasonably be examined
+- information that cannot be established from the transcript
+- direct relationships between statements
 
-Every item MUST begin with:
+============================================================
+NOT ALLOWED
+============================================================
+
+Do NOT infer:
+
+- hidden motives
+- intentions
+- guilt
+- responsibility
+- future actions
+- future consequences
+- political impact
+- legal outcome
+- economic impact
+- psychological condition
+- public reaction beyond what is stated
+- cause and effect unless explicitly supported
+- information from general knowledge
+
+============================================================
+EVIDENCE PROXIMITY RULE
+============================================================
+
+The analysis must stay within ONE logical step from the transcript.
+
+Allowed:
+
+Transcript:
+"The government called for a thorough investigation."
+
+Inference:
+"Inference: The government considers further investigation
+necessary based on the position stated in the transcript."
+
+Not allowed:
+
+"Inference: The government is preparing for legal action."
+
+The second statement requires information that is not present.
+
+============================================================
+NO MULTI-STEP INFERENCE
+============================================================
+
+Do not create reasoning chains such as:
+
+Transcript
+→ assumption
+→ interpretation
+→ prediction
+→ conclusion
+
+Only allow:
+
+Transcript
+→ direct interpretation
+
+If more than one unsupported reasoning step is required,
+discard the analysis.
+
+============================================================
+INFORMATION GAP ANALYSIS
+============================================================
+
+Information gaps are preferred over speculation.
+
+For example:
+
+"Inference: The transcript does not provide details about
+how the investigation will be conducted."
+
+This is acceptable because the absence of information can be
+directly verified from the transcript.
+
+Do NOT convert the information gap into a prediction.
+
+BAD:
+
+"Inference: The lack of information may cause problems
+during the investigation."
+
+GOOD:
+
+"Inference: The transcript does not specify how the
+investigation will be conducted."
+
+============================================================
+5. IMPLICATIONS
+============================================================
+
+Implications are NOT predictions.
+
+Implications are NOT free-form opinions.
+
+Implications are NOT speculation.
+
+Implications may only describe a direct and reasonably close
+interpretation of information explicitly stated in the transcript.
+
+Every implication MUST be directly anchored to one or more
+specific statements in the transcript.
+
+An implication must NOT introduce a new subject, event, motive,
+cause, consequence, responsibility, risk, outcome, or future event
+that is not explicitly supported by the transcript.
+
+============================================================
+STRICT INFERENCE DISTANCE
+============================================================
+
+Use the following rule:
+
+TRANSCRIPT
+    ↓
+DIRECT MEANING
+    ↓
+VERY CLOSE INTERPRETATION
+    ↓
+Inference
+
+DO NOT allow:
+
+TRANSCRIPT
+    ↓
+ASSUMPTION
+    ↓
+PREDICTION
+    ↓
+Inference
+
+The inference must remain as close as possible to the information
+actually stated in the transcript.
+
+If an inference requires multiple unsupported assumptions,
+DO NOT include it.
+
+If the implication cannot be clearly connected to a specific
+statement in the transcript, DO NOT include it.
+
+============================================================
+ALLOWED IMPLICATION
+============================================================
+
+Example transcript:
+
+"The local government called for a thorough investigation."
+
+Allowed:
+
+"Inference: The incident is being treated as requiring further
+investigation according to the local government's stated position."
+
+Why this is allowed:
+
+The inference stays very close to the explicit statement.
+
+============================================================
+NOT ALLOWED
+============================================================
+
+Do NOT write:
+
+"Inference: The investigation could lead to legal action."
+
+Reason:
+
+The transcript does not mention legal action.
+
+Do NOT write:
+
+"Inference: The government may be concerned about public safety."
+
+Reason:
+
+The transcript does not explicitly establish public safety
+as the reason for the government's position.
+
+Do NOT write:
+
+"Inference: The incident could increase political tension."
+
+Reason:
+
+This introduces a new consequence that is not stated in
+the transcript.
+
+Do NOT write:
+
+"Inference: The authorities will likely identify the perpetrators."
+
+Reason:
+
+This predicts a future outcome that is not supported by
+the transcript.
+
+============================================================
+IMPLICATION TYPES THAT ARE ALLOWED
+============================================================
+
+Only use implications from these categories:
+
+1. Explicit significance
+
+Explain the significance of something explicitly emphasized
+in the transcript.
+
+2. Explicit response
+
+Explain what a stated response indicates, without adding
+an unstated motive.
+
+3. Explicit information gap
+
+Identify information that the transcript itself does not provide.
+
+4. Direct relationship
+
+Explain a relationship between two statements that are
+explicitly connected in the transcript.
+
+5. Explicit consequence
+
+Only discuss a consequence when the transcript itself explicitly
+states or clearly describes that consequence.
+
+============================================================
+IMPLICATION TYPES THAT ARE NOT ALLOWED
+============================================================
+
+Do NOT infer:
+
+- future events
+- future outcomes
+- hidden motives
+- intentions
+- political consequences
+- legal consequences
+- economic consequences
+- social consequences
+- psychological states
+- responsibility
+- guilt
+- causation
+- probability of future events
+- what authorities will do next
+- what people will do next
+- what may happen outside the transcript
+
+unless the transcript explicitly provides the basis.
+
+============================================================
+SAFE INFERENCE TEST
+============================================================
+
+Before writing an implication, perform this test:
+
+QUESTION 1:
+Which exact statement or statements in the transcript support
+this implication?
+
+QUESTION 2:
+Can the implication be understood without adding information
+from outside the transcript?
+
+QUESTION 3:
+Does the implication introduce a new event, consequence,
+motive, person, organization, or future outcome?
+
+If YES to QUESTION 3:
+REJECT THE INFERENCE.
+
+QUESTION 4:
+Would a reasonable reader be able to trace the inference directly
+back to the transcript?
+
+If NO:
+REJECT THE INFERENCE.
+
+============================================================
+WHEN EVIDENCE IS INSUFFICIENT
+============================================================
+
+If the transcript does not provide enough information to produce
+a safe implication, DO NOT invent one.
+
+Instead write:
+
+"Inference: The transcript does not provide sufficient information
+to establish broader implications beyond the points explicitly
+described."
+
+This is preferable to speculation.
+
+============================================================
+MANDATORY LABEL
+============================================================
+
+EVERY item in implications MUST begin with:
 
 "Inference:"
 
-Do not invent a problem merely to produce an analysis.
-
-If there is insufficient evidence for a critical observation,
-state that the transcript does not provide enough information.
+No exception.
 
 ============================================================
-IMPLICATIONS
+LANGUAGE
 ============================================================
 
-Discuss possible implications that can reasonably be derived
-from the transcript.
+The Indonesian version must preserve the same inference boundary.
 
-Every item MUST begin with:
+Do not make the Indonesian inference broader than the English
+inference.
 
-"Inference:"
-
-Do not state potential implications as confirmed outcomes.
-
-Use cautious language where appropriate:
-
-- may
-- might
-- could
-- suggests
-- appears to
-- potentially
-
-Do not predict specific outcomes unless the transcript itself
-explicitly states them.
+Do not introduce additional interpretation during translation.
 
 ============================================================
 KEY TAKEAWAYS
@@ -361,6 +657,22 @@ Before returning the final JSON:
 9. Verify no unsupported names, dates, locations, motives,
    causes, consequences, or relationships have been added.
 10. Return valid JSON only.
+11. Every inference must be traceable to explicit information
+    in the transcript.
+12. Reject any inference that requires more than one unsupported
+    reasoning step.
+13. Prefer a narrower inference over a broader interpretation.
+14. If evidence is weak, omit the inference.
+15. Never create an implication merely because the output
+    section requires an item.
+16. A lack of transcript evidence is a valid reason to produce
+    fewer analytical items.
+17. Do not confuse "possible" with "supported".
+18. Do not use "may", "might", "could", or "suggests" as a way
+    to disguise unsupported speculation.
+19. The word "Inference:" does NOT make an unsupported statement
+    acceptable. The inference must still be directly grounded
+    in the transcript.
 """
 
 
