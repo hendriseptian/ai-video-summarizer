@@ -1,72 +1,36 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from workers import asgi, env
-import httpx2 as httpx
-
-import ast
-import hashlib
-import json
+from pathlib import Path
 import re
+import py_compile
 
+src = Path("/mnt/data/main_fixed_cloudflare.py")
+out = Path("/mnt/data/main_v2.py")
 
-# ============================================================
-# APPLICATION
-# ============================================================
+text = src.read_text(encoding="utf-8")
 
-app = FastAPI(
-    title="AI Video Summarizer API",
-    version="7.1.0"
+# ------------------------------------------------------------
+# 1) Version
+# ------------------------------------------------------------
+text = text.replace(
+    'version="7.1.0"',
+    'version="8.0.0"',
+    1
+)
+text = text.replace(
+    '"7.1.0"',
+    '"8.0.0"'
 )
 
-
-# ============================================================
-# CORS
-# ============================================================
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
-
-TRANSCRIPT_API_URL = (
-    "https://api.freetranscriptapi.com/v1/transcript"
-)
-
-CHUNK_SIZE = 18000
-
-MAX_SINGLE_PASS_CHARS = 100000
-
-MAX_FINAL_CONTEXT_CHARS = 90000
-
-AI_TIMEOUT = 120.0
-
-AI_MAX_TOKENS = 5000
-
-
-# ============================================================
-# SYSTEM PROMPT
-# ============================================================
-
-SYSTEM_PROMPT = """
+# ------------------------------------------------------------
+# 2) Replace SYSTEM_PROMPT
+# ------------------------------------------------------------
+new_system_prompt = r'''SYSTEM_PROMPT = """
 You are a professional media monitoring and news analysis AI.
 
-Your task is to analyze a video transcript and produce a structured,
-professional, objective, and useful analysis.
+Analyze ONLY the supplied video transcript.
 
 The transcript is the PRIMARY SOURCE of information.
 
-Do not assume that information outside the transcript is true.
-Do not use external knowledge to introduce facts that are not supported
+Do not use outside knowledge to introduce facts that are not supported
 by the video.
 
 The goal is NOT only to summarize the video.
@@ -83,6 +47,10 @@ The goal is to:
 9. provide communication recommendations,
 10. provide useful key takeaways.
 
+Do not identify speakers.
+
+Return ONLY valid JSON.
+
 ============================================================
 CORE PRINCIPLE
 ============================================================
@@ -90,12 +58,12 @@ CORE PRINCIPLE
 Separate FACT from INFERENCE.
 
 FACT:
-Information that is explicitly stated in the transcript.
+Information explicitly stated in the transcript.
 
 INFERENCE:
 An interpretation, analytical conclusion, or reasonable assumption
-that is not explicitly stated in the transcript but can reasonably
-be derived from the information presented in the video.
+that is not explicitly stated but can reasonably be derived from
+the information presented in the video.
 
 Facts do NOT require the label "Inference:".
 
@@ -103,7 +71,7 @@ Every analytical inference MUST begin with:
 
 "Inference:"
 
-The AI is allowed to make reasonable analytical assumptions.
+The AI MAY make reasonable assumptions and interpretations.
 However, assumptions must remain meaningfully connected to the
 content of the video.
 
@@ -120,81 +88,68 @@ supported by the transcript:
 - Key Points
 - Takeaways
 
-Do not introduce external facts into these sections.
+Do not introduce external facts.
 
 Do not change the meaning of factual information.
 
-Do not invent:
-- people
-- organizations
-- locations
-- dates
-- numbers
-- events
-- statements
-- actions
-- outcomes
-- motives
-- causes
-
-If information is not available in the transcript, do not fabricate it.
+Do not invent people, organizations, locations, dates, numbers,
+events, statements, actions, outcomes, motives, or causes.
 
 ============================================================
 EXECUTIVE SUMMARY
 ============================================================
 
-Write a comprehensive but concise summary.
+Write a comprehensive executive summary.
 
-The summary should normally contain approximately 180-300 words
-when sufficient information is available.
+Normally write approximately 180-300 words when sufficient
+information is available.
 
-The summary should cover the most important aspects of the video,
-including when applicable:
-
+Cover when supported:
 - main subject
-- important events
-- important facts
-- developments
-- actions or responses
+- context
+- important events and facts
+- important statements
+- responses or actions
 - relevant actors
-- impacts described in the video
-- concerns raised
-- overall significance
+- impacts or concerns
+- overall significance or conclusion
 
-Do not repeat unnecessary details.
+Write coherent professional prose in 1-3 paragraphs.
 
-Do not add information that is not supported by the transcript.
+Do not use bullet points or headings inside the summary.
+
+Do not repeat the transcript sentence by sentence.
 
 ============================================================
 KEY POINTS
 ============================================================
 
-Provide the most important factual points from the video.
+Provide 5-8 important points.
 
-Each point should represent a distinct and useful piece of information.
+Each point should normally contain 1-3 sentences.
 
-Do not make all key points variations of the same sentence.
+Each point must contain distinct and useful information.
 
 Prioritize:
 - important events
-- important statements
+- statements
 - actions
 - developments
 - affected parties
 - locations
 - numbers
-- relevant responses
+- responses
 - important issues
 
-Key Points should primarily be factual.
+Use information supported by the transcript.
 
 ============================================================
 INFERENCE POLICY
 ============================================================
 
-The AI MAY make reasonable assumptions, interpretations,
-and analytical conclusions as long as they remain clearly and
-meaningfully connected to the content of the video.
+The AI MAY make reasonable assumptions, interpretations, and
+analytical conclusions when they are clearly and meaningfully
+connected to the video.
 
 The purpose of inference is to provide useful analytical value
 and avoid simply repeating the transcript.
@@ -208,21 +163,18 @@ Every inference MUST begin with:
 "Inference:"
 
 The AI MAY use inference to:
-
-- interpret the significance of an event
-- explain the apparent meaning of information presented
-- connect related facts presented in the video
+- interpret significance
+- explain apparent meaning
+- connect related facts
 - identify relationships between events, actors, and issues
-- identify patterns or themes in the reporting
-- assess the apparent focus or emphasis of the reporting
-- interpret the apparent position or framing of the reporting
+- identify patterns or themes
+- assess reporting emphasis
+- interpret apparent framing
 - identify possible short-term consequences
-- identify potential communication implications
-- identify operational implications
-- identify institutional implications
-- explain why an issue may be important based on the content
-- draw reasonable conclusions from multiple statements
-  contained in the transcript
+- identify communication implications
+- identify operational or institutional implications
+- explain why an issue may be important
+- draw reasonable conclusions from multiple transcript statements
 
 ============================================================
 INFERENCE BOUNDARY
@@ -231,10 +183,10 @@ INFERENCE BOUNDARY
 Inference must remain meaningfully related to the content
 of the video.
 
-The AI is allowed to go beyond the exact wording of the
-transcript when making a reasonable analytical interpretation,
-but it must remain connected to information, events, actors,
-actions, themes, or circumstances presented in the video.
+The AI is allowed to go beyond exact wording when making
+a reasonable analytical interpretation, but it must remain
+connected to information, events, actors, actions, themes,
+or circumstances presented in the video.
 
 Do NOT introduce completely unrelated information.
 
@@ -252,22 +204,15 @@ support from the video.
 Do NOT create conclusions that require several unsupported
 assumptions.
 
-When the evidence is limited, use appropriately cautious
-language such as:
-
-"may"
-"could"
-"potentially"
-"appears to"
-"likely"
-"may indicate"
-"could suggest"
+When evidence is limited, use cautious language such as:
+"may", "could", "potentially", "appears to", "likely",
+"may indicate", or "could suggest".
 
 Prefer a useful and reasonable interpretation over simply
 repeating the transcript.
 
-However, do not create an inference merely for the purpose
-of filling the required number of items.
+Do not create an inference merely to fill a required number
+of items.
 
 If there is insufficient basis for an inference, omit it.
 
@@ -278,53 +223,46 @@ acceptable.
 CRITICAL ANALYSIS
 ============================================================
 
-Critical Analysis must provide meaningful analytical
-interpretation of the video.
+Provide 3-5 meaningful analytical observations.
 
 Do NOT simply repeat the Summary or Key Points.
 
-Critical Analysis should examine:
-
-- what the reporting emphasizes
-- how the issue is presented
-- why the issue appears significant
-- relationships between events or actors
+Focus on:
+- significance
+- reporting emphasis
+- framing
+- relationships between facts or actors
 - patterns or themes
-- the apparent direction or framing of the reporting
-- the significance of actions or developments
-- reasonable analytical meaning behind the reported facts
+- important considerations
+- limitations or information gaps
+- concerns supported by the video
 
-Critical Analysis may contain factual statements and
-reasonable inferences.
+Critical Analysis may contain factual statements and reasonable
+inferences.
 
 Every analytical inference MUST begin with:
 
 "Inference:"
 
-Critical Analysis should provide additional analytical value
-beyond the Summary and Key Points.
-
-Avoid producing three sections that merely restate the same
-information in different wording.
+Prioritize analytical value over repetition.
 
 ============================================================
 IMPLICATIONS
 ============================================================
 
+Provide 2-4 meaningful implications.
+
 Identify potential consequences, significance, or developments
-that may reasonably arise from the information presented in
-the video.
+that may reasonably arise from the information presented.
 
 Implications may include:
-
-- potential effects on the issue discussed
+- potential effects on the issue
 - potential effects on relevant actors
 - communication implications
 - public perception implications
 - operational implications
 - institutional implications
 - potential development of the issue
-- potential consequences of actions or events described
 
 Implications may contain reasonable inference.
 
@@ -332,69 +270,58 @@ Every inferential implication MUST begin with:
 
 "Inference:"
 
-Implications must remain connected to the specific issue
-and information presented in the video.
-
 Do NOT make extreme, distant, or unsupported predictions.
 
-Do NOT introduce unrelated political, social, economic,
-security, or policy consequences.
+Do NOT introduce unrelated political, social, economic, security,
+or policy consequences.
 
-When evidence is limited, use cautious language.
+Use cautious language when appropriate.
 
-If no reliable implication can be derived from the video,
-return fewer implications rather than creating speculative ones.
+If no reliable implication can be derived, return fewer items.
 
 ============================================================
 SENTIMENT
 ============================================================
 
-Determine the overall sentiment of the reporting based on
-the content and framing of the video.
+Determine the overall sentiment of the reporting.
 
-Allowed values:
-
+Allowed values only:
 "positive"
 "negative"
 "neutral"
 
-Use:
-
-positive
-when the reporting is predominantly favorable, supportive,
+positive:
+The reporting is predominantly favorable, supportive,
 constructive, or highlights positive developments.
 
-negative
-when the reporting is predominantly critical, unfavorable,
+negative:
+The reporting is predominantly critical, unfavorable,
 problem-focused, alarming, or highlights negative impacts.
 
-neutral
-when the reporting is primarily factual, balanced, descriptive,
+neutral:
+The reporting is primarily factual, balanced, descriptive,
 or does not clearly favor a positive or negative direction.
 
-Do not determine sentiment based on isolated words.
+Do not classify sentiment based on isolated words.
 
-Consider the overall framing and emphasis of the reporting.
+Consider the overall framing and emphasis.
 
-The sentiment reason must explain the classification briefly
-and remain connected to the video.
+Provide a short reason based on the video.
 
 ============================================================
 MAIN ISSUE
 ============================================================
 
-Identify the MAIN ISSUE or dominant topic discussed in the video.
+Identify the MAIN ISSUE or dominant topic.
 
-The main issue should answer:
+Answer:
 
-"What is the primary problem, topic, event, or subject receiving
-attention in this reporting?"
+"What is the primary problem, topic, event, or subject
+receiving attention in this reporting?"
 
-The issue should be specific and concise.
+Keep the title concise and specific.
 
-Do not write a long summary.
-
-The description should explain the issue briefly.
+The description should briefly explain the issue.
 
 ============================================================
 MEDIA ANALYSIS
@@ -402,15 +329,15 @@ MEDIA ANALYSIS
 
 Analyze the reporting from a media monitoring perspective.
 
-Do not simply summarize the news.
+Do NOT simply summarize the news.
 
-The analysis should contain:
+Provide:
 
 1. NEWS ANGLE
 
-Identify the primary angle or framing of the reporting.
+Identify the primary angle or framing.
 
-Examples include:
+Possible examples:
 - impact on society
 - government response
 - public concern
@@ -425,23 +352,22 @@ Examples include:
 - crisis
 - human interest
 
-Do not force an angle that is not supported by the video.
+Do not force an angle that is not supported.
 
 2. HIGHLIGHTED ACTORS
 
-Identify the people, institutions, government agencies,
-OPDs, organizations, communities, or other actors that receive
-significant attention in the reporting.
+Identify people, institutions, government agencies,
+OPDs, organizations, communities, or other actors
+receiving significant attention.
 
 Only include actors supported by the transcript.
 
 3. PEMPROV JAWA TENGAH POSITION
 
-Analyze how Pemerintah Provinsi Jawa Tengah is presented
-in the reporting, when Pemprov Jawa Tengah is relevant.
+Analyze how Pemerintah Provinsi Jawa Tengah is presented,
+when relevant.
 
-Possible interpretations include:
-
+Possible interpretations:
 - positive role
 - neutral/informational role
 - responsive role
@@ -450,72 +376,54 @@ Possible interpretations include:
 - supporting role
 - not prominently mentioned
 
-Do not assume the position of Pemprov Jawa Tengah if it is
-not present or reasonably inferable from the video.
+Do not invent a position if Pemprov Jawa Tengah is not relevant.
 
 4. PUBLIC OPINION POTENTIAL
 
 Assess the potential of the reporting to influence public
-perception based on the content and framing.
+perception based on its content and framing.
 
-This is an analytical assessment, not a prediction of actual
-public opinion.
+This is an analytical assessment, not a claim that public
+opinion has actually changed.
 
 Use cautious language.
-
-Example:
-
-"Inference: The emphasis on the government's response may
-shape public attention toward the effectiveness of the
-handling described in the report."
-
-Do not claim that public opinion has changed unless the video
-explicitly provides evidence.
 
 5. KEY MESSAGES
 
 Identify the main messages communicated by the reporting.
 
-Key messages should be concise and distinct.
-
-Do not simply copy sentences from the transcript.
+Keep messages concise and distinct.
 
 ============================================================
 COMMUNICATION RISK
 ============================================================
 
-Assess the communication risk associated with the reporting.
+Assess communication risk.
 
-Allowed values:
-
+Allowed values only:
 "low"
 "medium"
 "high"
 
 Consider:
-
-- tone of reporting
+- reporting tone
 - prominence of the issue
 - negative or critical framing
 - repeated problems or concerns
-- direct involvement of government institutions
-- potential sensitivity of the issue
-- public impact described in the video
+- direct government involvement
+- issue sensitivity
+- public impact described
 - intensity of criticism
 - potential for continued attention
 
-The risk assessment must include:
+Do NOT automatically classify a negative story as high risk.
 
+Provide:
 1. level
 2. reason
 3. escalation_potential
 
 Use cautious language for escalation potential.
-
-Do not automatically classify a negative story as HIGH risk.
-
-A negative story may still have low or medium communication
-risk depending on the context.
 
 ============================================================
 RECOMMENDATIONS
@@ -524,42 +432,35 @@ RECOMMENDATIONS
 Provide practical communication recommendations based on
 the analysis.
 
-Allowed recommendation types:
-
+Allowed types only:
 "amplification"
 "clarification"
 "counter_narrative"
 "media_engagement"
 "monitoring"
 
-Recommendations should be relevant to the specific issue.
+Use only recommendations relevant to the actual issue.
 
 Do not automatically recommend every type.
 
-Use the analysis and communication risk as the basis
-for recommendations.
-
-Examples:
-
 AMPLIFICATION:
-Recommended when positive government actions, achievements,
-services, or responses are clearly present and suitable
-for broader communication.
+Use when positive actions, achievements, services,
+or responses are present and suitable for broader communication.
 
 CLARIFICATION:
-Recommended when the reporting contains information that may
-require clarification or when facts could be misunderstood.
+Use when information may be misunderstood or requires factual
+clarification.
 
 COUNTER NARRATIVE:
-Recommended only when there is a meaningful negative framing
-or narrative that requires a factual alternative perspective.
+Use only when a meaningful negative framing or narrative
+requires a factual alternative perspective.
 
 MEDIA ENGAGEMENT:
-Recommended when direct communication with media may help
-provide context or explain an issue.
+Use when direct communication with media may help provide
+context or explanation.
 
 MONITORING:
-Recommended when an issue is developing, sensitive, recurring,
+Use when an issue is developing, sensitive, recurring,
 or requires continued observation.
 
 Do not fabricate a communication problem merely to justify
@@ -569,13 +470,11 @@ a recommendation.
 KEY TAKEAWAYS
 ============================================================
 
-Provide the most important conclusions a reader should
-remember after reading the analysis.
+Provide 2-4 important conclusions a reader should remember.
 
 Do NOT simply copy the Summary or Key Points.
 
-Key Takeaways should prioritize:
-
+Prioritize:
 - the most important issue
 - the most significant development
 - the main message
@@ -595,15 +494,12 @@ LANGUAGE
 
 Produce both English and Indonesian versions.
 
-The Indonesian version must be a natural and accurate
-equivalent of the English version.
+The Indonesian version must be natural, professional,
+and suitable for an office analytical report.
 
-Do not mechanically translate word by word.
+Do not translate word-for-word when unnatural.
 
-Keep the analytical meaning consistent between languages.
-
-Do not allow the English and Indonesian versions to introduce
-different facts or different conclusions.
+English and Indonesian must convey the same facts and conclusions.
 
 ============================================================
 OUTPUT FORMAT
@@ -611,12 +507,7 @@ OUTPUT FORMAT
 
 Return ONLY valid JSON.
 
-Do not return:
-- Markdown
-- code fences
-- explanations outside JSON
-- comments
-- additional fields outside the required structure
+Do not return Markdown, code fences, comments, or explanations.
 
 Use exactly this structure:
 
@@ -655,7 +546,6 @@ Use exactly this structure:
     ],
     "takeaways": []
   },
-
   "id": {
     "summary": "",
     "key_points": [],
@@ -696,612 +586,372 @@ Use exactly this structure:
 FINAL QUALITY CONTROL
 ============================================================
 
-Before returning the final JSON, verify all of the following:
+Before returning JSON:
 
-1. The transcript is the primary source.
-
+1. Transcript remains the primary source.
 2. No external facts were introduced.
-
-3. No people, organizations, events, numbers, locations,
-   actions, motives, or outcomes were invented.
-
-4. Summary is comprehensive but remains transcript-grounded.
-
-5. Key Points contain distinct information and do not
-   unnecessarily repeat each other.
-
-6. Critical Analysis adds analytical value and does not
-   simply repeat the Summary or Key Points.
-
-7. Every analytical inference begins with:
-   "Inference:"
-
-8. Every inferential implication begins with:
-   "Inference:"
-
-9. Every inferential takeaway begins with:
-   "Inference:"
-
-10. Inferences remain meaningfully connected to the video.
-
-11. Inferences may go beyond the exact wording of the transcript,
-    but they must remain reasonable and logically connected.
-
+3. No facts, people, organizations, numbers, events,
+   motives, or outcomes were invented.
+4. Summary is comprehensive and transcript-grounded.
+5. Key Points are distinct.
+6. Critical Analysis adds analytical value.
+7. Implications add potential consequences or significance.
+8. Every analytical inference begins with "Inference:".
+9. Every inferential implication begins with "Inference:".
+10. Every inferential takeaway begins with "Inference:".
+11. Inferences remain meaningfully connected to the video.
 12. Unsupported speculation is removed.
+13. No extreme or distant predictions.
+14. Sentiment reflects overall reporting.
+15. Main Issue is concise and specific.
+16. Media Analysis does not merely repeat the news.
+17. Pemprov Jawa Tengah position is not invented.
+18. Public Opinion Potential is an assessment, not a confirmed
+    change in public opinion.
+19. Communication Risk is justified.
+20. Recommendations are relevant to the actual analysis.
+21. English and Indonesian convey the same meaning.
+22. Summary, Key Points, Critical Analysis, Implications,
+    and Takeaways are not repetitive copies.
+23. Prefer fewer strong conclusions over many weak conclusions.
+24. If evidence is insufficient, omit or reduce the section.
+25. Return valid JSON only.
+"""
+'''
+text = re.sub(
+    r'SYSTEM_PROMPT = """.*?"""\n\n\n# ============================================================\n# CHUNK PROMPT',
+    new_system_prompt + '\n\n# ============================================================\n# CHUNK PROMPT',
+    text,
+    count=1,
+    flags=re.S
+)
 
-13. Do not make extreme or distant predictions.
+# ------------------------------------------------------------
+# 3) Add chunk-specific system prompt and monitoring prompt
+# ------------------------------------------------------------
+anchor = '# ============================================================\n# CHUNK PROMPT'
+insert = r'''# ============================================================
+# CHUNK SYSTEM PROMPT
+# ============================================================
 
-14. Implications must remain relevant to the specific issue.
+CHUNK_SYSTEM_PROMPT = """
+You are a transcript extraction assistant.
 
-15. Sentiment must reflect the overall reporting rather than
-    isolated words.
+Extract only important factual information from the supplied
+transcript section.
 
-16. Main Issue must be concise and specific.
+Do not analyze, speculate, infer, or add outside knowledge.
 
-17. Media Analysis must provide analytical value rather than
-    merely repeating the news.
+Do not identify speakers.
 
-18. Pemprov Jawa Tengah position must not be invented if the
-    government is not relevant to the reporting.
+Return ONLY valid JSON with this structure:
 
-19. Public Opinion Potential must be presented as an assessment,
-    not as a confirmed change in public opinion.
-
-20. Communication Risk must be justified.
-
-21. Recommendations must be relevant to the actual analysis.
-
-22. Do not recommend amplification, clarification,
-    counter narrative, media engagement, or monitoring
-    automatically without a relevant reason.
-
-23. English and Indonesian versions must convey the same meaning.
-
-24. Do not make Summary, Key Points, Critical Analysis,
-    Implications, and Takeaways identical or repetitive.
-
-25. Prefer fewer strong analytical conclusions over many
-    repetitive or weak conclusions.
-
-26. If the transcript does not provide enough evidence for
-    a particular section, provide a limited answer rather
-    than inventing information.
-
-27. The final response must contain valid JSON only.
+{
+  "facts": [],
+  "events": [],
+  "actors": [],
+  "issues": [],
+  "locations": [],
+  "numbers": [],
+  "responses": [],
+  "concerns": [],
+  "developments": []
+}
 """
 
 
 # ============================================================
-# ERROR RESPONSE
+# MONITORING REPORT SYSTEM PROMPT
 # ============================================================
 
-def error_response(
-    message,
-    error_type="server_error",
-    status=500
-):
-    return {
-        "status": "error",
-        "message": message,
-        "error": message,
-        "error_type": error_type,
-        "http_status": status
+MONITORING_SYSTEM_PROMPT = """
+You are a professional media monitoring and communication
+analysis AI.
+
+Your task is to aggregate multiple previously analyzed
+news/video items into ONE professional media monitoring report.
+
+IMPORTANT:
+
+Use ONLY the supplied analysis records.
+
+Do not use outside knowledge.
+
+Do not invent facts, exposure counts, stations, actors,
+issues, locations, sentiment, or events.
+
+The analysis records are the source dataset.
+
+The purpose is to identify patterns across multiple reports,
+not to repeat each individual report.
+
+============================================================
+REPORT OBJECTIVE
+============================================================
+
+Produce a professional monitoring report covering:
+
+- total exposure
+- number of news items
+- number of TV stations
+- Pemprov Jawa Tengah exposure
+- sentiment distribution
+- dominant issues
+- affected regions
+- highlighted actors
+- media angles
+- Pemprov Jawa Tengah position
+- public opinion potential
+- key messages
+- communication risk
+- news trend
+- recommendations
+- conclusion
+
+============================================================
+AGGREGATION RULES
+============================================================
+
+Count and group information across all supplied records.
+
+Dominant issues should be based on recurrence and prominence.
+
+Do not merge unrelated issues merely because they are similar.
+
+Affected regions should only include regions explicitly present
+in the supplied records.
+
+Highlighted actors should reflect actors repeatedly or
+prominently appearing across the records.
+
+Media angles should identify the dominant framing across
+the reporting set.
+
+============================================================
+SENTIMENT
+============================================================
+
+Use the sentiment labels already assigned to the individual
+records.
+
+Allowed values:
+
+"positive"
+"negative"
+"neutral"
+
+Calculate the distribution from the supplied records.
+
+Do not invent counts.
+
+Overall sentiment should reflect the distribution and
+dominant reporting tone.
+
+============================================================
+PEMPROV JAWA TENGAH
+============================================================
+
+Assess how Pemprov Jawa Tengah is positioned across the
+reporting set.
+
+Possible positions include:
+- positive
+- neutral
+- responsive
+- criticized
+- mixed
+- limited visibility
+- not prominently mentioned
+
+Do not invent involvement.
+
+============================================================
+PUBLIC OPINION POTENTIAL
+============================================================
+
+Assess the potential for the reporting to shape public
+attention or perception.
+
+This is an analytical assessment.
+
+Do not claim that public opinion actually changed unless
+the supplied records explicitly support that conclusion.
+
+Use cautious language.
+
+============================================================
+COMMUNICATION RISK
+============================================================
+
+Assess overall communication risk:
+
+"low"
+"medium"
+"high"
+
+Consider:
+- volume
+- sentiment
+- issue sensitivity
+- prominence
+- criticism
+- government involvement
+- repeated concerns
+- potential continuation of coverage
+
+Do not automatically classify a negative issue as high risk.
+
+Provide:
+- level
+- reason
+- escalation_potential
+
+============================================================
+NEWS TREND
+============================================================
+
+Identify how the dominant issue or coverage develops across
+the reporting set when the supplied records provide enough
+information.
+
+Do not force a three-stage trend if the data does not support it.
+
+Use the smallest useful number of stages.
+
+============================================================
+RECOMMENDATIONS
+============================================================
+
+Recommendations must be based on the aggregated analysis.
+
+Allowed types:
+
+"amplification"
+"clarification"
+"counter_narrative"
+"media_engagement"
+"monitoring"
+
+Do not automatically include all types.
+
+Recommendations should be practical and relevant.
+
+============================================================
+OUTPUT
+============================================================
+
+Return ONLY valid JSON.
+
+Use exactly this structure:
+
+{
+  "report": {
+    "title": "",
+    "period": {
+      "start": "",
+      "end": ""
     }
+  },
+  "statistics": {
+    "total_exposure": 0,
+    "total_news": 0,
+    "total_tv_stations": 0,
+    "pemprov_jateng_exposure": 0
+  },
+  "sentiment": {
+    "overall": "neutral",
+    "distribution": {
+      "positive": 0,
+      "negative": 0,
+      "neutral": 0
+    }
+  },
+  "dominant_issues": [],
+  "affected_regions": [],
+  "media_analysis": {
+    "dominant_angle": "",
+    "highlighted_actors": [],
+    "pemprov_jateng_position": "",
+    "public_opinion_potential": "",
+    "key_messages": []
+  },
+  "communication_risk": {
+    "level": "low",
+    "reason": "",
+    "escalation_potential": ""
+  },
+  "news_trend": {
+    "stages": []
+  },
+  "recommendations": [],
+  "conclusion": "",
+  "sources": []
+}
+"""
+
+'''
+text = text.replace(anchor, insert + anchor, 1)
+
+# ------------------------------------------------------------
+# 4) Replace CHUNK_PROMPT
+# ------------------------------------------------------------
+text = re.sub(
+    r'CHUNK_PROMPT = """.*?"""\n\n\n# ============================================================\n# ERROR RESPONSE',
+    r'''CHUNK_PROMPT = """
+Extract the important factual information from this transcript
+section for later synthesis.
+
+Return JSON with:
+{
+  "facts": [],
+  "events": [],
+  "actors": [],
+  "issues": [],
+  "locations": [],
+  "numbers": [],
+  "responses": [],
+  "concerns": [],
+  "developments": []
+}
+
+Use ONLY information contained in the transcript section.
+
+Do not invent facts.
+
+TRANSCRIPT SECTION:
+"""
 
 
 # ============================================================
-# YOUTUBE URL NORMALIZATION
-# ============================================================
-
-def normalize_youtube_url(
-    url
-):
-    if not isinstance(
-        url,
-        str
-    ):
-        return ""
-
-    url = url.strip()
-
-    if not url:
-        return ""
-
-    url = re.sub(
-        r"\s+",
-        "",
-        url
-    )
-
-    patterns = [
-        r"youtube\.com/watch\?[^#]*v=([A-Za-z0-9_-]{11})",
-        r"youtu\.be/([A-Za-z0-9_-]{11})",
-        r"youtube\.com/shorts/([A-Za-z0-9_-]{11})"
-    ]
-
-    for pattern in patterns:
-
-        match = re.search(
-            pattern,
-            url,
-            re.IGNORECASE
-        )
-
-        if match:
-
-            video_id = match.group(
-                1
-            )
-
-            return (
-                "https://www.youtube.com/watch?v="
-                + video_id
-            )
-
-    return ""
-
-
-# ============================================================
-# EXTRACT VIDEO ID
-# ============================================================
-
-def extract_video_id(
-    url
-):
-    normalized = normalize_youtube_url(
-        url
-    )
-
-    if not normalized:
-        return ""
-
-    match = re.search(
-        r"[?&]v=([A-Za-z0-9_-]{11})",
-        normalized
-    )
-
-    if match:
-        return match.group(
-            1
-        )
-
-    return ""
-
-
-# ============================================================
-# FORMAT TIMESTAMP
-# ============================================================
-
-def format_timestamp(
-    seconds
-):
-    try:
-        total_seconds = int(
-            float(seconds)
-        )
-    except Exception:
-        total_seconds = 0
-
-    if total_seconds < 0:
-        total_seconds = 0
-
-    hours = total_seconds // 3600
-
-    minutes = (
-        total_seconds % 3600
-    ) // 60
-
-    secs = (
-        total_seconds % 60
-    )
-
-    if hours > 0:
-
-        return (
-            f"{hours:02d}:"
-            f"{minutes:02d}:"
-            f"{secs:02d}"
-        )
-
-    return (
-        f"{minutes:02d}:"
-        f"{secs:02d}"
-    )
-
-
-# ============================================================
-# BUILD TRANSCRIPT TEXT
-# ============================================================
-
-def build_transcript_text(
-    segments
-):
-    lines = []
-
-    if not isinstance(
-        segments,
-        list
-    ):
-        return ""
-
-    for segment in segments:
-
-        if not isinstance(
-            segment,
-            dict
-        ):
-            continue
-
-        text = str(
-            segment.get(
-                "text",
-                ""
-            )
-        ).strip()
-
-        if not text:
-            continue
-
-        start = segment.get(
-            "start",
-            0
-        )
-
-        timestamp = format_timestamp(
-            start
-        )
-
-        lines.append(
-            f"[{timestamp}] {text}"
-        )
-
-    return "\n".join(
-        lines
-    )
-
-
-# ============================================================
-# TRANSCRIPT HASH
-# ============================================================
-
-def create_transcript_hash(
-    text
-):
-    return hashlib.sha256(
-        text.encode(
-            "utf-8"
-        )
-    ).hexdigest()
-
-
-# ============================================================
-# CHUNK TEXT
-# ============================================================
-
-def chunk_text(
+# ERROR RESPONSE''',
     text,
-    chunk_size=CHUNK_SIZE
-):
-    if not text:
-        return []
-
-    chunks = []
-
-    start = 0
-
-    text_length = len(
-        text
-    )
-
-    while start < text_length:
-
-        end = min(
-            start + chunk_size,
-            text_length
-        )
-
-        if end < text_length:
-
-            split_position = text.rfind(
-                "\n",
-                start,
-                end
-            )
-
-            minimum_split = (
-                start +
-                int(
-                    chunk_size *
-                    0.65
-                )
-            )
-
-            if (
-                split_position >
-                minimum_split
-            ):
-                end = split_position
-
-        chunk = text[
-            start:end
-        ].strip()
-
-        if chunk:
-            chunks.append(
-                chunk
-            )
-
-        start = end
-
-    return chunks
-
-
-# ============================================================
-# RUN AI
-# ============================================================
-
-async def run_ai(
-    system_prompt,
-    user_prompt,
-    max_tokens=AI_MAX_TOKENS
-):
-
-    payload = {
-        "messages": [
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": user_prompt
-            }
-        ],
-        "response_format": {
-            "type": "json_object"
-        },
-        "temperature": 0.0,
-        "seed": 42,
-        "max_tokens": max_tokens
-    }
-
-    try:
-
-        result = await env.AI.run(
-            AI_MODEL,
-            payload
-        )
-
-        return result
-
-    except Exception as error:
-
-        raise RuntimeError(
-            "AI model request failed: "
-            + str(error)
-        )
-
-
-# ============================================================
-# EXTRACT AI TEXT
-# ============================================================
-
-def extract_ai_text(
-    result
-):
-
-    if isinstance(
-        result,
-        str
-    ):
-        return result
-
-    if isinstance(
-        result,
-        dict
-    ):
-
-        if "response" in result:
-
-            response = result[
-                "response"
-            ]
-
-            if isinstance(
-                response,
-                str
-            ):
-                return response
-
-            if isinstance(
-                response,
-                dict
-            ):
-                return json.dumps(
-                    response,
-                    ensure_ascii=False
-                )
-
-        if "result" in result:
-
-            nested = result[
-                "result"
-            ]
-
-            if isinstance(
-                nested,
-                str
-            ):
-                return nested
-
-            if isinstance(
-                nested,
-                dict
-            ):
-                return json.dumps(
-                    nested,
-                    ensure_ascii=False
-                )
-
-        return json.dumps(
-            result,
-            ensure_ascii=False
-        )
-
-    return str(
-        result
-    )
-
-
-# ============================================================
-# CLEAN JSON
-# ============================================================
-
-def clean_json_text(
-    text
-):
-
-    if not text:
-        return ""
-
-    text = str(
-        text
-    ).strip()
-
-    text = re.sub(
-        r"^```(?:json)?\s*",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
-
-    text = re.sub(
-        r"\s*```$",
-        "",
-        text
-    )
-
-    first = text.find(
-        "{"
-    )
-
-    last = text.rfind(
-        "}"
-    )
-
-    if (
-        first >= 0 and
-        last > first
-    ):
-
-        text = text[
-            first:last + 1
-        ]
-
-    return text.strip()
-
-
-# ============================================================
-# PARSE AI JSON
-# ============================================================
-
-def parse_ai_json(
-    result
-):
-
-    text = extract_ai_text(
-        result
-    )
-
-    text = clean_json_text(
-        text
-    )
-
-    if not text:
-
-        raise ValueError(
-            "AI returned an empty response."
-        )
-
-    try:
-
-        parsed = json.loads(
-            text
-        )
-
-        if isinstance(
-            parsed,
-            dict
-        ):
-            return parsed
-
-    except Exception:
-        pass
-
-    try:
-
-        parsed = ast.literal_eval(
-            text
-        )
-
-        if isinstance(
-            parsed,
-            dict
-        ):
-            return parsed
-
-    except Exception:
-        pass
-
-    raise ValueError(
-        "AI returned invalid JSON."
-    )
-
-
-# ============================================================
+    count=1,
+    flags=re.S
+)
+
+# ------------------------------------------------------------
+# 5) Replace normalization block
+# ------------------------------------------------------------
+new_norm = r'''# ============================================================
 # NORMALIZE TEXT
 # ============================================================
 
-def normalize_text(
-    value
-):
-
+def normalize_text(value):
     if value is None:
         return ""
 
-    if isinstance(
-        value,
-        str
-    ):
+    if isinstance(value, str):
         return value.strip()
 
-    if isinstance(
-        value,
-        list
-    ):
-
+    if isinstance(value, list):
         parts = []
-
         for item in value:
-
-            text = normalize_text(
-                item
-            )
-
+            text = normalize_text(item)
             if text:
-                parts.append(
-                    text
-                )
+                parts.append(text)
+        return " ".join(parts).strip()
 
-        return " ".join(
-            parts
-        ).strip()
-
-    if isinstance(
-        value,
-        dict
-    ):
-
+    if isinstance(value, dict):
         preferred_keys = [
             "issue",
             "reason",
@@ -1309,747 +959,1086 @@ def normalize_text(
             "observation",
             "analysis",
             "text",
-            "content"
+            "content",
+            "description",
+            "action",
+            "escalation_potential",
+            "news_angle"
         ]
 
         parts = []
 
         for key in preferred_keys:
-
             if key in value:
-
-                text = normalize_text(
-                    value[key]
-                )
-
+                text = normalize_text(value[key])
                 if text:
-                    parts.append(
-                        text
-                    )
+                    parts.append(text)
 
         if parts:
+            return " ".join(parts).strip()
 
-            return " ".join(
-                parts
-            ).strip()
+        values = []
+        for item in value.values():
+            text = normalize_text(item)
+            if text:
+                values.append(text)
 
-        return " ".join(
-            normalize_text(
-                item
-            )
-            for item in value.values()
-            if normalize_text(
-                item
-            )
-        ).strip()
+        return " ".join(values).strip()
 
-    return str(
-        value
-    ).strip()
+    return str(value).strip()
 
 
 # ============================================================
 # NORMALIZE LIST
 # ============================================================
 
-def normalize_list(
-    value
-):
-
+def normalize_list(value):
     if value is None:
         return []
 
-    if isinstance(
-        value,
-        list
-    ):
-
+    if isinstance(value, list):
         output = []
 
         for item in value:
-
-            text = normalize_text(
-                item
-            )
+            text = normalize_text(item)
 
             if text:
-                output.append(
-                    text
-                )
+                output.append(text)
 
         return output
 
-    text = normalize_text(
-        value
-    )
+    text = normalize_text(value)
 
     if text:
-        return [
-            text
-        ]
+        return [text]
 
     return []
+
+
+# ============================================================
+# NORMALIZE RECOMMENDATIONS
+# ============================================================
+
+def normalize_recommendations(value):
+    if not isinstance(value, list):
+        return []
+
+    allowed_types = {
+        "amplification",
+        "clarification",
+        "counter_narrative",
+        "media_engagement",
+        "monitoring"
+    }
+
+    output = []
+
+    for item in value:
+        if isinstance(item, dict):
+            recommendation_type = str(
+                item.get("type", "monitoring")
+            ).strip().lower()
+
+            if recommendation_type not in allowed_types:
+                recommendation_type = "monitoring"
+
+            action = normalize_text(
+                item.get("action", "")
+            )
+
+            reason = normalize_text(
+                item.get("reason", "")
+            )
+
+            if action:
+                output.append({
+                    "type": recommendation_type,
+                    "action": action,
+                    "reason": reason
+                })
+
+        else:
+            action = normalize_text(item)
+
+            if action:
+                output.append({
+                    "type": "monitoring",
+                    "action": action,
+                    "reason": ""
+                })
+
+    return output
+
+
+# ============================================================
+# NORMALIZE SENTIMENT
+# ============================================================
+
+def normalize_sentiment(value):
+    if isinstance(value, dict):
+        label = str(
+            value.get("label", "neutral")
+        ).strip().lower()
+
+        reason = normalize_text(
+            value.get("reason", "")
+        )
+    else:
+        label = str(
+            value or "neutral"
+        ).strip().lower()
+
+        reason = ""
+
+    if label not in {
+        "positive",
+        "negative",
+        "neutral"
+    }:
+        label = "neutral"
+
+    return {
+        "label": label,
+        "reason": reason
+    }
+
+
+# ============================================================
+# NORMALIZE COMMUNICATION RISK
+# ============================================================
+
+def normalize_communication_risk(value):
+    if not isinstance(value, dict):
+        value = {}
+
+    level = str(
+        value.get("level", "low")
+    ).strip().lower()
+
+    if level not in {
+        "low",
+        "medium",
+        "high"
+    }:
+        level = "low"
+
+    return {
+        "level": level,
+        "reason": normalize_text(
+            value.get("reason", "")
+        ),
+        "escalation_potential": normalize_text(
+            value.get("escalation_potential", "")
+        )
+    }
+
+
+# ============================================================
+# NORMALIZE MEDIA ANALYSIS
+# ============================================================
+
+def normalize_media_analysis(value):
+    if not isinstance(value, dict):
+        value = {}
+
+    return {
+        "news_angle": normalize_text(
+            value.get("news_angle", "")
+        ),
+
+        "highlighted_actors": normalize_list(
+            value.get("highlighted_actors", [])
+        ),
+
+        "pemprov_jateng_position": normalize_text(
+            value.get(
+                "pemprov_jateng_position",
+                ""
+            )
+        ),
+
+        "public_opinion_potential": normalize_text(
+            value.get(
+                "public_opinion_potential",
+                ""
+            )
+        ),
+
+        "key_messages": normalize_list(
+            value.get("key_messages", [])
+        )
+    }
+
+
+# ============================================================
+# ENFORCE INFERENCE LABELS
+# ============================================================
+
+def enforce_inference_labels(analysis):
+    if not isinstance(analysis, dict):
+        return analysis
+
+    for language in ["en", "id"]:
+        section = analysis.get(language)
+
+        if not isinstance(section, dict):
+            continue
+
+        for field in [
+            "critical_analysis",
+            "implications"
+        ]:
+            items = section.get(field, [])
+
+            if not isinstance(items, list):
+                continue
+
+            normalized = []
+
+            for item in items:
+                text = normalize_text(item)
+
+                if not text:
+                    continue
+
+                if not text.lower().startswith(
+                    "inference:"
+                ):
+                    text = "Inference: " + text
+
+                normalized.append(text)
+
+            section[field] = normalized
+
+    return analysis
 
 
 # ============================================================
 # NORMALIZE LANGUAGE BLOCK
 # ============================================================
 
-def normalize_language_block(
-    block
-):
-
-    if not isinstance(
-        block,
-        dict
-    ):
+def normalize_language_block(block):
+    if not isinstance(block, dict):
         block = {}
 
-    return {
+    result = {
         "summary": normalize_text(
-            block.get(
-                "summary",
-                ""
-            )
+            block.get("summary", "")
         ),
 
         "key_points": normalize_list(
-            block.get(
-                "key_points",
-                []
-            )
+            block.get("key_points", [])
         ),
 
         "critical_analysis": normalize_list(
-            block.get(
-                "critical_analysis",
-                []
-            )
+            block.get("critical_analysis", [])
         ),
 
         "implications": normalize_list(
-            block.get(
-                "implications",
-                []
+            block.get("implications", [])
+        ),
+
+        "sentiment": normalize_sentiment(
+            block.get("sentiment", {})
+        ),
+
+        "main_issue": {
+            "title": normalize_text(
+                (
+                    block.get(
+                        "main_issue",
+                        {}
+                    )
+                    if isinstance(
+                        block.get(
+                            "main_issue",
+                            {}
+                        ),
+                        dict
+                    )
+                    else {}
+                ).get("title", "")
+            ),
+
+            "description": normalize_text(
+                (
+                    block.get(
+                        "main_issue",
+                        {}
+                    )
+                    if isinstance(
+                        block.get(
+                            "main_issue",
+                            {}
+                        ),
+                        dict
+                    )
+                    else {}
+                ).get("description", "")
             )
+        },
+
+        "media_analysis": normalize_media_analysis(
+            block.get("media_analysis", {})
+        ),
+
+        "communication_risk": normalize_communication_risk(
+            block.get("communication_risk", {})
+        ),
+
+        "recommendations": normalize_recommendations(
+            block.get("recommendations", [])
         ),
 
         "takeaways": normalize_list(
-            block.get(
-                "takeaways",
-                []
-            )
+            block.get("takeaways", [])
         )
     }
+
+    return result
 
 
 # ============================================================
 # NORMALIZE FINAL ANALYSIS
 # ============================================================
 
-def normalize_analysis(
-    data
-):
-
-    if not isinstance(
-        data,
-        dict
-    ):
+def normalize_analysis(data):
+    if not isinstance(data, dict):
         data = {}
 
-    return {
+    result = {
         "en": normalize_language_block(
+            data.get("en", {})
+        ),
+        "id": normalize_language_block(
+            data.get("id", {})
+        )
+    }
+
+    return enforce_inference_labels(result)
+
+
+# ============================================================
+# NORMALIZE MONITORING REPORT
+# ============================================================
+
+def normalize_monitoring_report(data):
+    if not isinstance(data, dict):
+        data = {}
+
+    report = data.get("report", {})
+    if not isinstance(report, dict):
+        report = {}
+
+    statistics = data.get("statistics", {})
+    if not isinstance(statistics, dict):
+        statistics = {}
+
+    sentiment = data.get("sentiment", {})
+    if not isinstance(sentiment, dict):
+        sentiment = {}
+
+    distribution = sentiment.get("distribution", {})
+    if not isinstance(distribution, dict):
+        distribution = {}
+
+    dominant_issues = data.get(
+        "dominant_issues",
+        []
+    )
+    if not isinstance(dominant_issues, list):
+        dominant_issues = []
+
+    normalized_issues = []
+
+    for item in dominant_issues:
+        if not isinstance(item, dict):
+            continue
+
+        try:
+            exposure_count = int(
+                item.get("exposure_count", 0)
+            )
+        except Exception:
+            exposure_count = 0
+
+        try:
+            percentage = float(
+                item.get("percentage", 0)
+            )
+        except Exception:
+            percentage = 0.0
+
+        normalized_issues.append({
+            "issue": normalize_text(
+                item.get("issue", "")
+            ),
+            "exposure_count": max(
+                exposure_count,
+                0
+            ),
+            "percentage": max(
+                percentage,
+                0.0
+            ),
+            "description": normalize_text(
+                item.get("description", "")
+            )
+        })
+
+    affected_regions = data.get(
+        "affected_regions",
+        []
+    )
+    if not isinstance(affected_regions, list):
+        affected_regions = []
+
+    normalized_regions = []
+
+    for item in affected_regions:
+        if not isinstance(item, dict):
+            continue
+
+        try:
+            count = int(
+                item.get("exposure_count", 0)
+            )
+        except Exception:
+            count = 0
+
+        normalized_regions.append({
+            "region": normalize_text(
+                item.get("region", "")
+            ),
+            "exposure_count": max(
+                count,
+                0
+            ),
+            "issues": normalize_list(
+                item.get("issues", [])
+            )
+        })
+
+    recommendations = normalize_recommendations(
+        data.get("recommendations", [])
+    )
+
+    sources = data.get("sources", [])
+    if not isinstance(sources, list):
+        sources = []
+
+    normalized_sources = []
+
+    for item in sources:
+        if isinstance(item, dict):
+            try:
+                count = int(
+                    item.get("exposure_count", 0)
+                )
+            except Exception:
+                count = 0
+
+            normalized_sources.append({
+                "station": normalize_text(
+                    item.get("station", "")
+                ),
+                "exposure_count": max(
+                    count,
+                    0
+                )
+            })
+
+    overall = str(
+        sentiment.get(
+            "overall",
+            "neutral"
+        )
+    ).strip().lower()
+
+    if overall not in {
+        "positive",
+        "negative",
+        "neutral"
+    }:
+        overall = "neutral"
+
+    return {
+        "report": {
+            "title": normalize_text(
+                report.get("title", "")
+            ),
+            "period": {
+                "start": normalize_text(
+                    (
+                        report.get(
+                            "period",
+                            {}
+                        )
+                        if isinstance(
+                            report.get(
+                                "period",
+                                {}
+                            ),
+                            dict
+                        )
+                        else {}
+                    ).get("start", "")
+                ),
+                "end": normalize_text(
+                    (
+                        report.get(
+                            "period",
+                            {}
+                        )
+                        if isinstance(
+                            report.get(
+                                "period",
+                                {}
+                            ),
+                            dict
+                        )
+                        else {}
+                    ).get("end", "")
+                )
+            }
+        },
+
+        "statistics": {
+            "total_exposure": max(
+                int(
+                    statistics.get(
+                        "total_exposure",
+                        0
+                    ) or 0
+                ),
+                0
+            ),
+            "total_news": max(
+                int(
+                    statistics.get(
+                        "total_news",
+                        0
+                    ) or 0
+                ),
+                0
+            ),
+            "total_tv_stations": max(
+                int(
+                    statistics.get(
+                        "total_tv_stations",
+                        0
+                    ) or 0
+                ),
+                0
+            ),
+            "pemprov_jateng_exposure": max(
+                int(
+                    statistics.get(
+                        "pemprov_jateng_exposure",
+                        0
+                    ) or 0
+                ),
+                0
+            )
+        },
+
+        "sentiment": {
+            "overall": overall,
+            "distribution": {
+                "positive": max(
+                    int(
+                        distribution.get(
+                            "positive",
+                            0
+                        ) or 0
+                    ),
+                    0
+                ),
+                "negative": max(
+                    int(
+                        distribution.get(
+                            "negative",
+                            0
+                        ) or 0
+                    ),
+                    0
+                ),
+                "neutral": max(
+                    int(
+                        distribution.get(
+                            "neutral",
+                            0
+                        ) or 0
+                    ),
+                    0
+                )
+            }
+        },
+
+        "dominant_issues": normalized_issues,
+        "affected_regions": normalized_regions,
+
+        "media_analysis": normalize_media_analysis(
             data.get(
-                "en",
+                "media_analysis",
                 {}
             )
         ),
 
-        "id": normalize_language_block(
+        "communication_risk": normalize_communication_risk(
             data.get(
-                "id",
+                "communication_risk",
                 {}
             )
-        )
-    }
+        ),
 
-
-# ============================================================
-# FETCH TRANSCRIPT
-# ============================================================
-
-async def fetch_transcript(
-    video_url
-):
-
-    normalized_url = normalize_youtube_url(
-        video_url
-    )
-
-    if not normalized_url:
-
-        raise ValueError(
-            "Invalid YouTube URL."
-        )
-
-    try:
-
-        async with httpx.AsyncClient(
-            timeout=AI_TIMEOUT,
-            follow_redirects=True
-        ) as client:
-
-            response = await client.get(
-                TRANSCRIPT_API_URL,
-                params={
-                    "video_url":
-                        normalized_url
-                }
-            )
-
-    except Exception as error:
-
-        raise RuntimeError(
-            "Failed to connect to transcript service: "
-            + str(error)
-        )
-
-    if response.status_code != 200:
-
-        try:
-
-            error_data = response.json()
-
-            message = error_data.get(
-                "message",
+        "news_trend": {
+            "stages": normalize_list(
                 (
-                    "Transcript service returned HTTP "
-                    + str(
-                        response.status_code
+                    data.get(
+                        "news_trend",
+                        {}
                     )
-                )
-            )
-
-        except Exception:
-
-            message = (
-                response.text
-                or (
-                    "Transcript service returned HTTP "
-                    + str(
-                        response.status_code
+                    if isinstance(
+                        data.get(
+                            "news_trend",
+                            {}
+                        ),
+                        dict
                     )
-                )
+                    else {}
+                ).get("stages", [])
             )
+        },
 
-        raise RuntimeError(
-            message
-        )
+        "recommendations": recommendations,
 
-    try:
+        "conclusion": normalize_text(
+            data.get("conclusion", "")
+        ),
 
-        data = response.json()
-
-    except Exception:
-
-        raise RuntimeError(
-            "Transcript service returned invalid JSON."
-        )
-
-    if not isinstance(
-        data,
-        dict
-    ):
-
-        raise RuntimeError(
-            "Transcript service returned invalid data."
-        )
-
-    segments = data.get(
-        "transcript",
-        []
-    )
-
-    if not isinstance(
-        segments,
-        list
-    ):
-        segments = []
-
-    cleaned = []
-
-    for segment in segments:
-
-        if not isinstance(
-            segment,
-            dict
-        ):
-            continue
-
-        text = str(
-            segment.get(
-                "text",
-                ""
-            )
-        ).strip()
-
-        if not text:
-            continue
-
-        try:
-
-            start = float(
-                segment.get(
-                    "start",
-                    0
-                )
-            )
-
-        except Exception:
-
-            start = 0.0
-
-        try:
-
-            duration = float(
-                segment.get(
-                    "duration",
-                    0
-                )
-            )
-
-        except Exception:
-
-            duration = 0.0
-
-        cleaned.append(
-            {
-                "text":
-                    text,
-
-                "start":
-                    start,
-
-                "duration":
-                    duration
-            }
-        )
-
-    if not cleaned:
-
-        raise RuntimeError(
-            "Transcript is empty or unavailable for this video."
-        )
-
-    return {
-        "title":
-            data.get(
-                "title",
-                "Untitled Video"
-            ),
-
-        "language":
-            data.get(
-                "language",
-                "unknown"
-            ),
-
-        "transcript":
-            cleaned
+        "sources": normalized_sources
     }
 
 
+'''
+text = re.sub(
+    r'# ============================================================\n# NORMALIZE TEXT.*?# ============================================================\n# FETCH TRANSCRIPT',
+    new_norm + '# ============================================================\n# FETCH TRANSCRIPT',
+    text,
+    count=1,
+    flags=re.S
+)
+
+# ------------------------------------------------------------
+# 6) Use chunk-specific system prompt
+# ------------------------------------------------------------
+text = text.replace(
+    'result = await run_ai(\n            SYSTEM_PROMPT,\n            prompt,\n            2500\n        )',
+    'result = await run_ai(\n            CHUNK_SYSTEM_PROMPT,\n            prompt,\n            2500\n        )',
+    1
+)
+
+# ------------------------------------------------------------
+# 7) Replace large-transcript final prompt wording
+# ------------------------------------------------------------
+text = text.replace(
+    'Create the final professional report from the following\nanalysis notes.',
+    'Create the final professional video analysis from the following\nfactual extraction notes.',
+    1
+)
+
+# ------------------------------------------------------------
+# 8) Add monitoring endpoint before ROOT
+# ------------------------------------------------------------
+monitoring_endpoint = r'''
 # ============================================================
-# ANALYZE LARGE TRANSCRIPT
-# ============================================================
-
-async def analyze_large_transcript(
-    transcript_text
-):
-
-    chunks = chunk_text(
-        transcript_text
-    )
-
-    if not chunks:
-
-        raise ValueError(
-            "Transcript could not be divided into chunks."
-        )
-
-    notes = []
-
-    for index, chunk in enumerate(
-        chunks,
-        start=1
-    ):
-
-        prompt = (
-            CHUNK_PROMPT
-            + "\n\nCHUNK "
-            + str(index)
-            + " OF "
-            + str(len(chunks))
-            + "\n\n"
-            + chunk
-        )
-
-        result = await run_ai(
-            SYSTEM_PROMPT,
-            prompt,
-            2500
-        )
-
-        notes.append(
-            extract_ai_text(
-                result
-            )
-        )
-
-    combined_notes = "\n\n".join(
-        notes
-    )
-
-    combined_notes = combined_notes[
-        :MAX_FINAL_CONTEXT_CHARS
-    ]
-
-    final_prompt = """
-Create the final professional report from the following
-analysis notes.
-
-Use all relevant information.
-
-Follow the required JSON structure.
-
-The executive summary must normally be approximately
-180-300 words.
-
-Do not invent facts.
-
-Do not identify speakers.
-
-Return ONLY valid JSON.
-
-ANALYSIS NOTES:
-
-""" + combined_notes
-
-    final_result = await run_ai(
-        SYSTEM_PROMPT,
-        final_prompt,
-        5000
-    )
-
-    analysis = normalize_analysis(
-        parse_ai_json(
-            final_result
-        )
-    )
-
-    return (
-        analysis,
-        "chunked",
-        len(chunks)
-    )
-
-
-# ============================================================
-# ANALYZE TRANSCRIPT
+# MONITORING REPORT ENDPOINT
 # ============================================================
 
-async def analyze_transcript(
-    transcript_text
-):
-
-    if len(
-        transcript_text
-    ) <= MAX_SINGLE_PASS_CHARS:
-
-        prompt = """
-Create the final professional video analysis from
-the following transcript.
-
-Use ALL relevant information.
-
-The executive summary must normally contain
-approximately 180-300 words.
-
-Follow the required JSON structure.
-
-Do not invent facts.
-
-Do not identify speakers.
-
-Return ONLY valid JSON.
-
-TRANSCRIPT:
-
-""" + transcript_text
-
-        result = await run_ai(
-            SYSTEM_PROMPT,
-            prompt,
-            5000
-        )
-
-        analysis = normalize_analysis(
-            parse_ai_json(
-                result
-            )
-        )
-
-        return (
-            analysis,
-            "single_pass",
-            1
-        )
-
-    return await analyze_large_transcript(
-        transcript_text
-    )
-
-
-# ============================================================
-# ROOT
-# ============================================================
-
-@app.get("/")
-async def root():
-
-    return {
-        "status":
-            "ok",
-
-        "service":
-            "AI Video Summarizer API",
-
-        "version":
-            "7.1.0"
-    }
-
-
-# ============================================================
-# HEALTH
-# ============================================================
-
-@app.get("/health")
-async def health():
-
-    return {
-        "status":
-            "ok",
-
-        "version":
-            "7.1.0"
-    }
-
-
-# ============================================================
-# ANALYZE ENDPOINT
-# ============================================================
-
-@app.post("/analyze")
-async def analyze(
+@app.post("/monitoring-report")
+async def monitoring_report(
     request: Request
 ):
 
     try:
 
-        # ----------------------------------------------------
-        # READ JSON
-        # ----------------------------------------------------
+        body = await request.json()
 
-        try:
-
-            body = await request.json()
-
-        except Exception:
-
-            return error_response(
-                "Invalid JSON request body.",
-                "invalid_json",
-                400
-            )
-
-        if not isinstance(
-            body,
-            dict
-        ):
-
+        if not isinstance(body, dict):
             return error_response(
                 "Request body must be a JSON object.",
                 "invalid_request",
                 400
             )
 
-        # ----------------------------------------------------
-        # READ URL
-        # ----------------------------------------------------
-
-        video_url = (
-            body.get(
-                "video_url"
-            )
-            or body.get(
-                "youtube_url"
-            )
-            or body.get(
-                "url"
-            )
-            or ""
+        analyses = (
+            body.get("analyses")
+            or body.get("items")
+            or []
         )
 
-        if not isinstance(
-            video_url,
-            str
+        if not isinstance(analyses, list):
+            return error_response(
+                "analyses must be an array.",
+                "validation_error",
+                400
+            )
+
+        if not analyses:
+            return error_response(
+                "At least one analysis record is required.",
+                "validation_error",
+                400
+            )
+
+        if len(analyses) > 100:
+            return error_response(
+                "Maximum 100 analysis records per monitoring report.",
+                "validation_error",
+                400
+            )
+
+        period = body.get("period", {})
+        if not isinstance(period, dict):
+            period = {}
+
+        start_date = str(
+            period.get("start", "")
+        ).strip()
+
+        end_date = str(
+            period.get("end", "")
+        ).strip()
+
+        # ----------------------------------------------------
+        # BUILD AGGREGATION DATA
+        # ----------------------------------------------------
+
+        records = []
+
+        for index, item in enumerate(
+            analyses,
+            start=1
         ):
 
-            video_url = str(
-                video_url
-            )
+            if not isinstance(item, dict):
+                continue
 
-        video_url = video_url.strip()
+            video = item.get("video", {})
+            if not isinstance(video, dict):
+                video = {}
 
-        # ----------------------------------------------------
-        # VALIDATE URL
-        # ----------------------------------------------------
+            ai = item.get("ai", {})
+            if not isinstance(ai, dict):
+                ai = {}
 
-        if not video_url:
+            # Prefer Indonesian analysis for the monitoring layer.
+            # Fall back to English if Indonesian is unavailable.
+            language_data = ai.get("id")
 
+            if not isinstance(
+                language_data,
+                dict
+            ):
+                language_data = ai.get(
+                    "en",
+                    {}
+                )
+
+            if not isinstance(
+                language_data,
+                dict
+            ):
+                language_data = {}
+
+            records.append({
+                "record_id": index,
+
+                "video": {
+                    "id": normalize_text(
+                        video.get("id", "")
+                    ),
+                    "title": normalize_text(
+                        video.get("title", "")
+                    ),
+                    "url": normalize_text(
+                        video.get("url", "")
+                    ),
+                    "station": normalize_text(
+                        video.get("station", "")
+                    ),
+                    "source": normalize_text(
+                        video.get("source", "")
+                    ),
+                    "publication_date": normalize_text(
+                        video.get(
+                            "publication_date",
+                            ""
+                        )
+                    )
+                },
+
+                "analysis": language_data
+            })
+
+        if not records:
             return error_response(
-                "YouTube URL is required.",
+                "No valid analysis records were supplied.",
                 "validation_error",
                 400
             )
 
-        normalized_url = normalize_youtube_url(
-            video_url
-        )
-
-        if not normalized_url:
-
-            return error_response(
-                "Invalid YouTube URL.",
-                "validation_error",
-                400
-            )
-
-        video_id = extract_video_id(
-            normalized_url
-        )
-
-        if not video_id:
-
-            return error_response(
-                "Could not extract YouTube video ID.",
-                "validation_error",
-                400
-            )
-
         # ----------------------------------------------------
-        # GET TRANSCRIPT
+        # DETERMINISTIC STATISTICS
         # ----------------------------------------------------
 
-        transcript_data = await fetch_transcript(
-            normalized_url
+        total_news = len(records)
+
+        stations = []
+
+        positive = 0
+        negative = 0
+        neutral = 0
+
+        pemprov_exposure = 0
+
+        for record in records:
+
+            video = record["video"]
+            analysis = record["analysis"]
+
+            station = video.get(
+                "station",
+                ""
+            ).strip()
+
+            if station:
+                stations.append(
+                    station
+                )
+
+            sentiment = analysis.get(
+                "sentiment",
+                {}
+            )
+
+            if isinstance(
+                sentiment,
+                dict
+            ):
+                label = str(
+                    sentiment.get(
+                        "label",
+                        "neutral"
+                    )
+                ).strip().lower()
+            else:
+                label = "neutral"
+
+            if label == "positive":
+                positive += 1
+            elif label == "negative":
+                negative += 1
+            else:
+                neutral += 1
+
+            media_analysis = analysis.get(
+                "media_analysis",
+                {}
+            )
+
+            if not isinstance(
+                media_analysis,
+                dict
+            ):
+                media_analysis = {}
+
+            pemprov_position = normalize_text(
+                media_analysis.get(
+                    "pemprov_jateng_position",
+                    ""
+                )
+            ).lower()
+
+            if (
+                pemprov_position
+                and
+                "not prominently mentioned"
+                not in pemprov_position
+                and
+                "tidak disebut"
+                not in pemprov_position
+                and
+                "tidak menonjol"
+                not in pemprov_position
+            ):
+                pemprov_exposure += 1
+
+        unique_stations = sorted(
+            set(
+                item
+                for item in stations
+                if item
+            )
         )
 
-        transcript_segments = (
-            transcript_data[
-                "transcript"
+        # ----------------------------------------------------
+        # BUILD AI AGGREGATION INPUT
+        # ----------------------------------------------------
+
+        aggregation_payload = {
+            "period": {
+                "start": start_date,
+                "end": end_date
+            },
+
+            "deterministic_statistics": {
+                "total_news": total_news,
+                "total_exposure": total_news,
+                "total_tv_stations": len(
+                    unique_stations
+                ),
+                "pemprov_jateng_exposure": pemprov_exposure,
+
+                "sentiment_distribution": {
+                    "positive": positive,
+                    "negative": negative,
+                    "neutral": neutral
+                },
+
+                "stations": unique_stations
+            },
+
+            "records": records
+        }
+
+        aggregation_text = json.dumps(
+            aggregation_payload,
+            ensure_ascii=False
+        )
+
+        if len(aggregation_text) > MAX_FINAL_CONTEXT_CHARS:
+            aggregation_text = aggregation_text[
+                :MAX_FINAL_CONTEXT_CHARS
             ]
+
+        prompt = """
+Create the final professional media monitoring report
+from the supplied analysis records.
+
+Use the deterministic statistics as authoritative counts
+for total news, total exposure, TV stations, and sentiment.
+
+Do not change deterministic counts.
+
+Use the supplied individual analysis records to determine:
+- dominant issues
+- affected regions
+- media angles
+- highlighted actors
+- Pemprov Jawa Tengah position
+- public opinion potential
+- key messages
+- communication risk
+- news trend
+- recommendations
+- conclusion
+
+Return ONLY valid JSON.
+
+PERIOD:
+""" + json.dumps(
+            {
+                "start": start_date,
+                "end": end_date
+            },
+            ensure_ascii=False
+        ) + """
+
+AGGREGATION DATA:
+
+""" + aggregation_text
+
+        result = await run_ai(
+            MONITORING_SYSTEM_PROMPT,
+            prompt,
+            5000
         )
 
-        # ----------------------------------------------------
-        # BUILD TRANSCRIPT TEXT
-        # ----------------------------------------------------
-
-        transcript_text = build_transcript_text(
-            transcript_segments
+        report = normalize_monitoring_report(
+            parse_ai_json(result)
         )
 
-        if not transcript_text:
+        # Force authoritative deterministic statistics.
+        report["report"]["period"]["start"] = start_date
+        report["report"]["period"]["end"] = end_date
 
-            return error_response(
-                "Transcript is empty.",
-                "transcript_error",
-                422
+        report["statistics"]["total_news"] = total_news
+        report["statistics"]["total_exposure"] = total_news
+        report["statistics"]["total_tv_stations"] = len(
+            unique_stations
+        )
+        report["statistics"]["pemprov_jateng_exposure"] = (
+            pemprov_exposure
+        )
+
+        report["sentiment"]["distribution"] = {
+            "positive": positive,
+            "negative": negative,
+            "neutral": neutral
+        }
+
+        sentiment_counts = {
+            "positive": positive,
+            "negative": negative,
+            "neutral": neutral
+        }
+
+        report["sentiment"]["overall"] = max(
+            sentiment_counts,
+            key=sentiment_counts.get
+        )
+
+        # Build deterministic source list when station metadata exists.
+        station_counts = {}
+
+        for station in stations:
+            station_counts[station] = (
+                station_counts.get(
+                    station,
+                    0
+                ) + 1
             )
 
-        # ----------------------------------------------------
-        # HASH
-        # ----------------------------------------------------
-
-        transcript_hash = create_transcript_hash(
-            transcript_text
-        )
-
-        # ----------------------------------------------------
-        # AI ANALYSIS
-        # ----------------------------------------------------
-
-        (
-            analysis,
-            analysis_mode,
-            total_chunks
-        ) = await analyze_transcript(
-            transcript_text
-        )
-
-        # ----------------------------------------------------
-        # FINAL RESPONSE
-        # ----------------------------------------------------
+        report["sources"] = [
+            {
+                "station": station,
+                "exposure_count": count
+            }
+            for station, count
+            in sorted(
+                station_counts.items(),
+                key=lambda item: (
+                    -item[1],
+                    item[0]
+                )
+            )
+        ]
 
         return {
-            "status":
-                "success",
-
-            "video": {
-                "id":
-                    video_id,
-
-                "url":
-                    normalized_url
-            },
-
-            "transcript": {
-                "title":
-                    transcript_data[
-                        "title"
-                    ],
-
-                "language":
-                    transcript_data[
-                        "language"
-                    ],
-
-                "transcript":
-                    transcript_segments
-            },
-
-            "ai":
-                analysis,
-
+            "status": "success",
+            "report": report,
             "processing": {
-                "mode":
-                    analysis_mode,
-
-                "total_segments":
-                    len(
-                        transcript_segments
-                    ),
-
-                "total_chunks":
-                    total_chunks,
-
-                "transcript_characters":
-                    len(
-                        transcript_text
-                    ),
-
-                "transcript_hash":
-                    transcript_hash
+                "total_records": total_news,
+                "total_tv_stations": len(
+                    unique_stations
+                ),
+                "sentiment_distribution": {
+                    "positive": positive,
+                    "negative": negative,
+                    "neutral": neutral
+                }
             }
         }
 
@@ -2079,8 +2068,105 @@ async def analyze(
         )
 
 
-# ============================================================
-# CLOUDFLARE ASGI
-# ============================================================
+'''
+text = text.replace(
+    '# ============================================================\n# ROOT',
+    monitoring_endpoint + '# ============================================================\n# ROOT',
+    1
+)
 
-Default = asgi.entrypoint(app)
+# ------------------------------------------------------------
+# 9) Add optional metadata to /analyze response
+# ------------------------------------------------------------
+# Capture metadata from request body.
+needle = '''        video_id = extract_video_id(
+            normalized_url
+        )
+
+        if not video_id:
+
+            return error_response(
+                "Could not extract YouTube video ID.",
+                "validation_error",
+                400
+            )
+'''
+replacement = '''        video_id = extract_video_id(
+            normalized_url
+        )
+
+        if not video_id:
+
+            return error_response(
+                "Could not extract YouTube video ID.",
+                "validation_error",
+                400
+            )
+
+        # Optional media-monitoring metadata.
+        # Existing frontend requests remain fully compatible.
+        station = str(
+            body.get("station", "")
+            or body.get("tv_station", "")
+            or ""
+        ).strip()
+
+        source = str(
+            body.get("source", "")
+            or ""
+        ).strip()
+
+        publication_date = str(
+            body.get("publication_date", "")
+            or body.get("date", "")
+            or ""
+        ).strip()
+'''
+text = text.replace(needle, replacement, 1)
+
+# Replace video response block to include metadata.
+old_video = '''            "video": {
+                "id":
+                    video_id,
+
+                "url":
+                    normalized_url
+            },
+'''
+new_video = '''            "video": {
+                "id":
+                    video_id,
+
+                "url":
+                    normalized_url,
+
+                "title":
+                    transcript_data[
+                        "title"
+                    ],
+
+                "station":
+                    station,
+
+                "source":
+                    source,
+
+                "publication_date":
+                    publication_date
+            },
+'''
+text = text.replace(old_video, new_video, 1)
+
+# ------------------------------------------------------------
+# 10) Save and compile
+# ------------------------------------------------------------
+out.write_text(text, encoding="utf-8")
+
+py_compile.compile(
+    str(out),
+    doraise=True
+)
+
+print(f"V2 created successfully: {out}")
+print(f"Lines: {len(text.splitlines())}")
+print("Syntax check: PASSED")
