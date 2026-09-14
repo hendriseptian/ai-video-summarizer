@@ -1,3 +1,26 @@
+function isValidYouTubeUrl(value) {
+    if (!value) return false;
+
+    try {
+        const url = new URL(value.trim());
+        const hostname = url.hostname.toLowerCase();
+
+        if (
+            hostname === "youtube.com" ||
+            hostname === "www.youtube.com" ||
+            hostname === "m.youtube.com" ||
+            hostname === "youtu.be" ||
+            hostname === "www.youtu.be"
+        ) {
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        return false;
+    }
+}
+
 /* ============================================================
    AI VIDEO SUMMARIZER
    SCRIPT.JS - STABLE V1 + V2
