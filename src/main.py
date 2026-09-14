@@ -1,9 +1,4 @@
-from pathlib import Path
-
-source = Path("/mnt/data/Pasted text(20260914-044604).txt")
-output = Path("/mnt/data/main_STEP1_STABLE_CRITICAL.py")
-
-code = r'''from fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from workers import asgi, env
@@ -39,7 +34,7 @@ app.add_middleware(
 
 
 # ============================================================
-# CONSTANTS
+# CONFIGURATION
 # ============================================================
 
 TRANSCRIPT_API_URL = (
@@ -54,8 +49,6 @@ AI_MODEL = (
     "@cf/zai-org/glm-4.7-flash"
 )
 
-# Keep chunking deterministic.
-# The same transcript always produces the same chunk boundaries.
 CHUNK_SIZE = 18000
 
 
@@ -65,9 +58,10 @@ CHUNK_SIZE = 18000
 
 @app.get("/")
 async def root():
+
     return {
         "status": "ok",
-        "message": "AI Video Summarizer API V2.1 Stable is running on Cloudflare"
+        "message": "AI Video Summarizer API V2.1 is running"
     }
 
 
@@ -77,6 +71,7 @@ async def root():
 
 @app.get("/health")
 async def health():
+
     return {
         "status": "healthy",
         "version": "2.1.0"
@@ -84,10 +79,23 @@ async def health():
 
 
 # ============================================================
+# CLEAN TEXT
+# ============================================================
+
+def clean_text(value):
+
+    if value is None:
+        return ""
+
+    return str(value).strip()
+
+
+# ============================================================
 # SAFE JSON EXTRACTION
 # ============================================================
 
 def extract_json(text):
+
     if not text:
         return None
 
@@ -99,7 +107,7 @@ def extract_json(text):
     except Exception:
         pass
 
-    # Remove Markdown code fences
+    # Remove Markdown code fence
     cleaned = re.sub(
         r"```(?:json)?",
         "",
@@ -107,19 +115,25 @@ def extract_json(text):
         flags=re.IGNORECASE
     )
 
-    cleaned = cleaned.replace("```", "").strip()
+    cleaned = cleaned.replace(
+        "```",
+        ""
+    ).strip()
 
     try:
         return json.loads(cleaned)
     except Exception:
         pass
 
-    # Find first JSON object
+    # Find JSON object inside additional text
     start = cleaned.find("{")
     end = cleaned.rfind("}")
 
     if start >= 0 and end > start:
-        candidate = cleaned[start:end + 1]
+
+        candidate = cleaned[
+            start:end + 1
+        ]
 
         try:
             return json.loads(candidate)
@@ -130,23 +144,15 @@ def extract_json(text):
 
 
 # ============================================================
-# SAFE STRING
-# ============================================================
-
-def clean_text(value):
-    if value is None:
-        return ""
-
-    return str(value).strip()
-
-
-# ============================================================
 # FORMAT TIMESTAMP
 # ============================================================
 
 def format_timestamp(seconds):
+
     try:
-        seconds = int(float(seconds))
+        seconds = int(
+            float(seconds)
+        )
     except Exception:
         seconds = 0
 
@@ -156,11 +162,10 @@ def format_timestamp(seconds):
         seconds % 3600
     ) // 60
 
-    secs = (
-        seconds % 60
-    )
+    secs = seconds % 60
 
     if hours > 0:
+
         return (
             f"{hours:02d}:"
             f"{minutes:02d}:"
@@ -174,7 +179,7 @@ def format_timestamp(seconds):
 
 
 # ============================================================
-# FETCH YOUTUBE METADATA
+# YOUTUBE METADATA
 # ============================================================
 
 async def get_youtube_metadata(url):
@@ -187,6 +192,7 @@ async def get_youtube_metadata(url):
     }
 
     try:
+
         encoded_url = quote(
             url,
             safe=""
@@ -199,6 +205,7 @@ async def get_youtube_metadata(url):
         )
 
         async with httpx.AsyncClient() as client:
+
             response = await client.get(
                 oembed_url,
                 timeout=15.0
@@ -228,7 +235,7 @@ async def get_youtube_metadata(url):
 
 
 # ============================================================
-# FETCH TRANSCRIPT
+# FREE TRANSCRIPT API
 # ============================================================
 
 async def get_transcript(url):
@@ -244,6 +251,7 @@ async def get_transcript(url):
     }
 
     if api_key:
+
         headers["Authorization"] = (
             f"Bearer {api_key}"
         )
@@ -253,6 +261,7 @@ async def get_transcript(url):
     }
 
     async with httpx.AsyncClient() as client:
+
         response = await client.get(
             TRANSCRIPT_API_URL,
             params=params,
@@ -261,6 +270,7 @@ async def get_transcript(url):
         )
 
     if response.status_code >= 400:
+
         return {
             "ok": False,
             "status_code": response.status_code,
@@ -269,12 +279,13 @@ async def get_transcript(url):
 
     data = response.json()
 
-    transcript_segments = data.get(
+    transcript = data.get(
         "transcript",
         []
     )
 
-    if not transcript_segments:
+    if not transcript:
+
         return {
             "ok": False,
             "status_code": 200,
@@ -307,23 +318,23 @@ def normalize_segments(segments):
         if not text:
             continue
 
-        start = segment.get(
-            "start",
-            0
-        )
-
-        duration = segment.get(
-            "duration",
-            0
-        )
-
         try:
-            start = float(start)
+            start = float(
+                segment.get(
+                    "start",
+                    0
+                )
+            )
         except Exception:
             start = 0.0
 
         try:
-            duration = float(duration)
+            duration = float(
+                segment.get(
+                    "duration",
+                    0
+                )
+            )
         except Exception:
             duration = 0.0
 
@@ -351,17 +362,15 @@ def build_full_transcript(segments):
             segment["start"]
         )
 
-        text = segment["text"]
-
         lines.append(
-            f"[{timestamp}] {text}"
+            f"[{timestamp}] {segment['text']}"
         )
 
     return "\n".join(lines)
 
 
 # ============================================================
-# BUILD CHUNKS
+# BUILD DETERMINISTIC CHUNKS
 # ============================================================
 
 def build_chunks(
@@ -387,12 +396,12 @@ def build_chunks(
 
         line_length = len(line) + 1
 
-        # If one transcript line is extremely long,
-        # keep it as one deterministic chunk.
+        # Very long individual segment
         if (
             len(line) > max_chars
             and not current_lines
         ):
+
             chunks.append({
                 "chunk_index": len(chunks) + 1,
                 "start": segment["start"],
@@ -405,16 +414,18 @@ def build_chunks(
 
             continue
 
-        # Start a new deterministic chunk.
+        # Start a new chunk
         if (
             current_lines
-            and current_length + line_length
+            and
+            current_length + line_length
             > max_chars
         ):
+
             chunks.append({
                 "chunk_index": len(chunks) + 1,
-                "start": current_lines[0]["_start"],
-                "end": current_lines[-1]["_end"],
+                "start": current_lines[0]["start"],
+                "end": current_lines[-1]["end"],
                 "text": "\n".join(
                     item["line"]
                     for item in current_lines
@@ -426,8 +437,8 @@ def build_chunks(
 
         current_lines.append({
             "line": line,
-            "_start": segment["start"],
-            "_end": (
+            "start": segment["start"],
+            "end": (
                 segment["start"]
                 + segment["duration"]
             )
@@ -437,10 +448,11 @@ def build_chunks(
 
     # Last chunk
     if current_lines:
+
         chunks.append({
             "chunk_index": len(chunks) + 1,
-            "start": current_lines[0]["_start"],
-            "end": current_lines[-1]["_end"],
+            "start": current_lines[0]["start"],
+            "end": current_lines[-1]["end"],
             "text": "\n".join(
                 item["line"]
                 for item in current_lines
@@ -483,11 +495,8 @@ async def call_ai(
                     ],
 
                     # STEP 1:
-                    # deterministic sampling setting.
-                    # This improves repeatability but by itself
-                    # cannot guarantee byte-for-byte identical
-                    # model output. Exact repeatability will be
-                    # handled later with caching.
+                    # Lowest possible temperature for
+                    # maximum practical consistency.
                     "temperature": 0.0,
 
                     "chat_template_kwargs": {
@@ -504,6 +513,7 @@ async def call_ai(
             )
 
             if content:
+
                 return clean_text(
                     content
                 )
@@ -522,7 +532,7 @@ async def call_ai(
 
 
 # ============================================================
-# ANALYZE CHUNK
+# CHUNK ANALYSIS
 # ============================================================
 
 async def analyze_chunk(
@@ -533,29 +543,72 @@ async def analyze_chunk(
     system_prompt = """
 You are a rigorous professional video-content analyst.
 
-You are analyzing ONE PART of a longer YouTube video.
+Your task is to analyze ONE PART of a longer YouTube video.
 
+==================================================
 PRIMARY OBJECTIVE
-Extract the substantive content of this transcript chunk accurately.
-Do not merely paraphrase every sentence.
+==================================================
 
-EVIDENCE DISCIPLINE
-1. Use ONLY information contained in the supplied transcript chunk.
-2. Do not use outside knowledge.
-3. Do not invent facts, names, statistics, events, sources, motives,
-   occupations, identities, or background information.
-4. Treat statements in the transcript as claims unless the transcript
-   itself provides enough evidence to establish them as facts.
-5. Distinguish claims, opinions, assumptions, explanations, evidence,
-   examples, and conclusions when the distinction is clear.
-6. If the transcript is insufficient to establish something, do not guess.
-7. Do not manufacture criticism.
-8. Do not infer who is speaking.
-9. Do not perform speaker identification.
-10. Focus on CONTENT, ARGUMENTS, EVIDENCE, REASONING, and CONCLUSIONS.
+Extract the substantive content accurately.
 
+Do not simply rewrite every sentence.
+
+Identify:
+
+- important topics
+- important arguments
+- claims
+- evidence
+- examples
+- reasoning
+- conclusions
+- assumptions
+- weaknesses
+- contradictions
+- missing evidence
+
+==================================================
+EVIDENCE RULES
+==================================================
+
+1. Use ONLY information contained in the supplied transcript.
+
+2. Do NOT use outside knowledge.
+
+3. Do NOT invent:
+   - facts
+   - statistics
+   - sources
+   - names
+   - events
+   - identities
+   - occupations
+   - motives
+   - background information
+
+4. Do NOT identify speakers.
+
+5. Do NOT infer speaker identity.
+
+6. Treat statements as claims unless the transcript itself provides
+   enough evidence to establish them as facts.
+
+7. Distinguish between:
+   - factual statements
+   - claims
+   - opinions
+   - assumptions
+   - examples
+   - conclusions
+
+8. If evidence is insufficient, do not guess.
+
+==================================================
 CRITICAL READING
+==================================================
+
 Look for:
+
 - unsupported claims
 - missing evidence
 - weak reasoning
@@ -565,30 +618,37 @@ Look for:
 - overgeneralization
 - exaggeration
 - unsupported cause-and-effect
-- conclusions that go beyond the information presented
+- conclusions stronger than the evidence
 - one-sided framing
-- important omissions that are visible from the transcript itself
+- important omissions
 
-Only flag a weakness when the transcript provides a concrete basis.
-If no meaningful weakness is visible in this chunk, do not invent one.
+Only identify a weakness when the transcript provides a basis.
 
-CONSISTENCY RULE
-For the same transcript chunk, apply the same analytical priorities:
-1. Main topic
-2. Main argument or idea
-3. Important supporting information
-4. Evidence or examples
-5. Weaknesses or limitations
-6. Conclusion or implication
+Do not manufacture criticism.
 
-Ignore greetings, filler, jokes, repetition, and conversational noise
-unless they materially affect the meaning.
+==================================================
+CONSISTENCY
+==================================================
+
+For the same transcript chunk:
+
+- use the same analytical priorities
+- preserve the same meaning
+- do not randomly change conclusions
+- ignore filler and repetition
+- prioritize substantive information
+
+==================================================
+OUTPUT
+==================================================
 
 Return ONLY valid JSON.
+
 No Markdown.
 No code fences.
+No explanations.
 
-Use exactly this structure:
+Use exactly:
 
 {
   "topics": [],
@@ -596,22 +656,22 @@ Use exactly this structure:
   "critical_observations": [],
   "chunk_summary": ""
 }
-
-The arrays may contain only information supported by the transcript.
-Use concise but information-dense wording.
 """
 
     user_prompt = f"""
 VIDEO TITLE:
 {title}
 
-CHUNK NUMBER:
+CHUNK:
 {chunk['chunk_index']}
 
 TIMESTAMP:
-{format_timestamp(chunk['start'])} - {format_timestamp(chunk['end'])}
+{format_timestamp(chunk['start'])}
+-
+{format_timestamp(chunk['end'])}
 
 TRANSCRIPT:
+
 {chunk['text']}
 """
 
@@ -625,6 +685,7 @@ TRANSCRIPT:
     )
 
     if not result:
+
         return {
             "topics": [],
             "important_points": [],
@@ -647,13 +708,22 @@ TRANSCRIPT:
         []
     )
 
-    if not isinstance(topics, list):
+    if not isinstance(
+        topics,
+        list
+    ):
         topics = []
 
-    if not isinstance(important_points, list):
+    if not isinstance(
+        important_points,
+        list
+    ):
         important_points = []
 
-    if not isinstance(critical_observations, list):
+    if not isinstance(
+        critical_observations,
+        list
+    ):
         critical_observations = []
 
     return {
@@ -662,16 +732,19 @@ TRANSCRIPT:
             for x in topics
             if clean_text(x)
         ],
+
         "important_points": [
             clean_text(x)
             for x in important_points
             if clean_text(x)
         ],
+
         "critical_observations": [
             clean_text(x)
             for x in critical_observations
             if clean_text(x)
         ],
+
         "chunk_summary": clean_text(
             result.get(
                 "chunk_summary",
@@ -700,18 +773,22 @@ async def final_synthesis(
 
         analysis_blocks.append({
             "chunk": index,
+
             "topics": result.get(
                 "topics",
                 []
             ),
+
             "important_points": result.get(
                 "important_points",
                 []
             ),
+
             "critical_observations": result.get(
                 "critical_observations",
                 []
             ),
+
             "summary": result.get(
                 "chunk_summary",
                 ""
@@ -721,88 +798,192 @@ async def final_synthesis(
     analysis_text = json.dumps(
         analysis_blocks,
         ensure_ascii=False,
-        separators=(",", ":")
+        separators=(
+            ",",
+            ":"
+        )
     )
 
     system_prompt = """
-You are the final editor and critical reviewer of a long-form YouTube video.
+You are the final editor and critical reviewer of a YouTube video.
 
-Your job is NOT to praise the video and NOT to rewrite the transcript.
-Your job is to produce a sharp, evidence-based, intellectually honest
-analysis of the content.
+Your task is to create a sharp, accurate, evidence-based analysis
+of the COMPLETE video.
 
+==================================================
 SOURCE LIMIT
-You may use ONLY the supplied intermediate analyses.
-Do not use outside knowledge.
-Do not invent facts, sources, names, motives, identities, occupations,
-events, statistics, or background information.
+==================================================
 
+Use ONLY the supplied intermediate analyses.
+
+Do NOT use outside knowledge.
+
+Do NOT invent:
+
+- facts
+- statistics
+- sources
+- names
+- events
+- identities
+- occupations
+- motives
+- background information
+
+==================================================
 CRITICAL STANDARD
-Be analytical rather than diplomatic.
+==================================================
 
-Actively test the reasoning presented in the video for:
-- unsupported claims
-- missing evidence
-- weak reasoning
-- logical gaps
-- contradictions
-- hidden assumptions
-- overgeneralization
-- exaggeration
-- unsupported cause-and-effect
-- conclusions stronger than the evidence presented
-- one-sided framing
-- important omissions
+Do not automatically treat statements in the video as facts.
 
-IMPORTANT:
-A claim is NOT automatically a fact merely because it appears in the video.
+Evaluate the strength of the reasoning presented.
 
-However, do NOT manufacture criticism.
-If a claim is reasonable and well supported by the supplied material,
-say so.
-If there is insufficient evidence to judge it, explicitly say:
+Look for:
+
+1. Unsupported claims
+2. Missing evidence
+3. Weak reasoning
+4. Logical gaps
+5. Contradictions
+6. Hidden assumptions
+7. Overgeneralization
+8. Exaggeration
+9. Unsupported cause-and-effect
+10. Conclusions stronger than the evidence
+11. One-sided framing
+12. Important omissions
+
+For every criticism, explain WHY the issue matters.
+
+Do not criticize merely for the sake of criticism.
+
+If something is well supported, say so.
+
+If evidence is insufficient, explicitly state:
+
 "Insufficient evidence in the transcript."
 
+==================================================
 SPEAKER RULE
+==================================================
+
 Do NOT identify speakers.
-Do NOT infer speaker identity, occupation, role, motive, or background.
+
+Do NOT infer:
+
+- speaker identity
+- occupation
+- role
+- background
+- motive
+
 Focus exclusively on the content.
 
-CONSISTENCY RULES
-For repeated analysis of the same input:
-- use the same analytical priorities
-- preserve the same major conclusions
-- do not change conclusions merely to vary wording
-- do not add new sections
-- do not randomly reorder important ideas
-- remove duplicate points
-- prioritize substantive information over filler
-- preserve chronology when it materially affects understanding
+==================================================
+SUMMARY
+==================================================
 
-OUTPUT RULES
-1. Produce BOTH English and Indonesian.
-2. Both languages must contain the same conclusions.
-3. Do not introduce information in one language that is absent in the other.
-4. Summary must be concise but substantive.
-5. Provide EXACTLY 5 key points.
-6. Provide 3 to 5 critical analysis observations.
-7. Provide 3 concise takeaways.
-8. Each key point must contain a meaningful idea, not filler.
-9. Critical observations must explain WHY something is weak, unsupported,
-   incomplete, or strong when the evidence permits.
-10. Takeaways must identify what the viewer should understand, question,
-    verify, or learn.
-11. Do not use emotional, personal, political, ideological, or moral
-    judgments unless they are explicitly part of the content and relevant
-    to evaluating the argument.
-12. Do not exaggerate criticism simply to make the analysis sound sharp.
+Summarize the central message.
+
+Do not simply rewrite the transcript.
+
+Focus on:
+
+- what the video is about
+- the central argument
+- the most important conclusion
+
+==================================================
+KEY POINTS
+==================================================
+
+Provide EXACTLY 5 key points.
+
+Each point must contain a meaningful idea.
+
+Do not create five points from the same idea.
+
+Prioritize substantive information.
+
+Ignore greetings, filler, jokes, and repetition unless they are
+important to understanding the content.
+
+==================================================
+CRITICAL ANALYSIS
+==================================================
+
+Provide 3 to 5 critical observations.
+
+Each observation should explain:
+
+- what the issue is
+- what evidence is available
+- why the issue matters
+
+Potential issues include:
+
+- unsupported claims
+- missing evidence
+- logical gaps
+- contradictions
+- assumptions
+- exaggeration
+- weak causal reasoning
+- overgeneralization
+- one-sided framing
+
+Do not invent weaknesses.
+
+==================================================
+TAKEAWAYS
+==================================================
+
+Provide EXACTLY 3 takeaways.
+
+They should explain:
+
+- what the viewer should understand
+- what the viewer should question
+- what may require verification
+
+==================================================
+LANGUAGE
+==================================================
+
+Produce:
+
+EN = professional English
+
+ID = professional Indonesian
+
+Both versions MUST communicate the same conclusions.
+
+Do not introduce information in one language that is absent from
+the other.
+
+==================================================
+CONSISTENCY
+==================================================
+
+For the same input:
+
+- preserve the same conclusions
+- preserve the same important ideas
+- use the same analytical priorities
+- do not randomly change conclusions
+- do not add unnecessary sections
+
+==================================================
+OUTPUT FORMAT
+==================================================
 
 Return ONLY valid JSON.
+
 No Markdown.
 No code fences.
-No additional fields.
+No explanations.
 
-Use EXACTLY this structure:
+Use EXACTLY:
 
 {
   "en": {
@@ -850,26 +1031,31 @@ Use EXACTLY this structure:
 
     user_prompt = f"""
 VIDEO TITLE:
+
 {title}
 
 TRANSCRIPT LANGUAGE:
+
 {language}
 
-INTERMEDIATE ANALYSES FROM ALL TRANSCRIPT CHUNKS:
+INTERMEDIATE ANALYSES:
 
 {analysis_text}
 
-Now produce the final analysis.
+Create the final analysis.
 
-Remember:
-- use all important sections, including later chunks
-- do not identify speakers
-- do not use outside knowledge
-- be sharp and critical, but evidence-based
-- exactly 5 key points in each language
-- 3 to 5 critical analysis observations
-- exactly 3 takeaways
-- English and Indonesian must express the same conclusions
+Important:
+
+- Use information from ALL chunks.
+- Do not focus only on the beginning.
+- Do not identify speakers.
+- Do not use outside knowledge.
+- Be sharp and critical.
+- Be evidence-based.
+- Exactly 5 key points.
+- 3 to 5 critical analysis observations.
+- Exactly 3 takeaways.
+- English and Indonesian must contain the same conclusions.
 """
 
     ai_text = await call_ai(
@@ -882,6 +1068,7 @@ Remember:
     )
 
     if not result:
+
         return {
             "en": {
                 "summary": ai_text,
@@ -889,6 +1076,7 @@ Remember:
                 "critical_analysis": [],
                 "takeaways": []
             },
+
             "id": {
                 "summary": "",
                 "key_points": [],
@@ -907,14 +1095,24 @@ Remember:
         {}
     )
 
-    if not isinstance(en, dict):
+    if not isinstance(
+        en,
+        dict
+    ):
         en = {}
 
-    if not isinstance(id_data, dict):
+    if not isinstance(
+        id_data,
+        dict
+    ):
         id_data = {}
 
     def clean_list(value):
-        if not isinstance(value, list):
+
+        if not isinstance(
+            value,
+            list
+        ):
             return []
 
         return [
@@ -924,34 +1122,48 @@ Remember:
         ]
 
     en_key_points = clean_list(
-        en.get("key_points", [])
+        en.get(
+            "key_points",
+            []
+        )
     )
 
     id_key_points = clean_list(
-        id_data.get("key_points", [])
+        id_data.get(
+            "key_points",
+            []
+        )
     )
 
     en_critical = clean_list(
-        en.get("critical_analysis", [])
+        en.get(
+            "critical_analysis",
+            []
+        )
     )
 
     id_critical = clean_list(
-        id_data.get("critical_analysis", [])
+        id_data.get(
+            "critical_analysis",
+            []
+        )
     )
 
     en_takeaways = clean_list(
-        en.get("takeaways", [])
+        en.get(
+            "takeaways",
+            []
+        )
     )
 
     id_takeaways = clean_list(
-        id_data.get("takeaways", [])
+        id_data.get(
+            "takeaways",
+            []
+        )
     )
 
-    # Enforce deterministic structural limits.
-    # The model is instructed to produce these sizes, but the backend
-    # also normalizes the result so malformed responses do not change
-    # the API structure.
-
+    # Enforce output structure
     en_key_points = en_key_points[:5]
     id_key_points = id_key_points[:5]
 
@@ -964,25 +1176,38 @@ Remember:
     return {
         "en": {
             "summary": clean_text(
-                en.get("summary", "")
+                en.get(
+                    "summary",
+                    ""
+                )
             ),
+
             "key_points": en_key_points,
+
             "critical_analysis": en_critical,
+
             "takeaways": en_takeaways
         },
+
         "id": {
             "summary": clean_text(
-                id_data.get("summary", "")
+                id_data.get(
+                    "summary",
+                    ""
+                )
             ),
+
             "key_points": id_key_points,
+
             "critical_analysis": id_critical,
+
             "takeaways": id_takeaways
         }
     }
 
 
 # ============================================================
-# ANALYZE
+# ANALYZE ENDPOINT
 # ============================================================
 
 @app.post("/analyze")
@@ -990,73 +1215,99 @@ async def analyze(data: dict):
 
     try:
 
-        # ====================================================
-        # 1. GET URL
-        # ====================================================
+        # ----------------------------------------------------
+        # 1. URL
+        # ----------------------------------------------------
 
         url = clean_text(
             data.get("url")
         )
 
         if not url:
+
             return {
                 "status": "error",
                 "message": "YouTube URL is required"
             }
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # 2. YOUTUBE METADATA
-        # ====================================================
+        # ----------------------------------------------------
 
         metadata = await get_youtube_metadata(
             url
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # 3. TRANSCRIPT
-        # ====================================================
+        # ----------------------------------------------------
 
         transcript_result = await get_transcript(
             url
         )
 
-        if not transcript_result.get("ok"):
+        if not transcript_result.get(
+            "ok"
+        ):
+
             return {
                 "status": "error",
-                "message": "FreeTranscriptAPI request failed",
-                "http_status": transcript_result.get(
-                    "status_code"
-                ),
-                "details": transcript_result.get(
-                    "details"
-                )
+
+                "message":
+                    "FreeTranscriptAPI request failed",
+
+                "http_status":
+                    transcript_result.get(
+                        "status_code"
+                    ),
+
+                "details":
+                    transcript_result.get(
+                        "details"
+                    )
             }
 
-        transcript_data = transcript_result["data"]
+        transcript_data = (
+            transcript_result["data"]
+        )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # 4. VIDEO INFORMATION
-        # ====================================================
+        # ----------------------------------------------------
 
         video_title = clean_text(
-            transcript_data.get("title")
+            transcript_data.get(
+                "title"
+            )
         )
 
         if not video_title:
+
             video_title = (
-                metadata.get("title")
-                or "Unknown title"
+                metadata.get(
+                    "title"
+                )
+                or
+                "Unknown title"
             )
 
         language = clean_text(
-            transcript_data.get("language")
+            transcript_data.get(
+                "language"
+            )
         )
 
         if not language:
+
             language = "unknown"
+
+
+        # ----------------------------------------------------
+        # 5. NORMALIZE TRANSCRIPT
+        # ----------------------------------------------------
 
         segments = normalize_segments(
             transcript_data.get(
@@ -1066,39 +1317,44 @@ async def analyze(data: dict):
         )
 
         if not segments:
+
             return {
                 "status": "error",
                 "message": "Transcript is empty"
             }
 
 
-        # ====================================================
-        # 5. BUILD COMPLETE TRANSCRIPT
-        # ====================================================
+        # ----------------------------------------------------
+        # 6. FULL TRANSCRIPT
+        # ----------------------------------------------------
 
-        full_transcript = build_full_transcript(
-            segments
+        full_transcript = (
+            build_full_transcript(
+                segments
+            )
         )
 
 
-        # ====================================================
-        # 6. BUILD DETERMINISTIC CHUNKS
-        # ====================================================
+        # ----------------------------------------------------
+        # 7. CHUNKS
+        # ----------------------------------------------------
 
         chunks = build_chunks(
             segments
         )
 
         if not chunks:
+
             return {
                 "status": "error",
-                "message": "Unable to create transcript chunks"
+                "message":
+                    "Unable to create transcript chunks"
             }
 
 
-        # ====================================================
-        # 7. ANALYZE EACH CHUNK
-        # ====================================================
+        # ----------------------------------------------------
+        # 8. ANALYZE CHUNKS
+        # ----------------------------------------------------
 
         chunk_results = []
 
@@ -1114,9 +1370,9 @@ async def analyze(data: dict):
             )
 
 
-        # ====================================================
-        # 8. FINAL SYNTHESIS
-        # ====================================================
+        # ----------------------------------------------------
+        # 9. FINAL SYNTHESIS
+        # ----------------------------------------------------
 
         ai_summary = await final_synthesis(
             title=video_title,
@@ -1125,28 +1381,36 @@ async def analyze(data: dict):
         )
 
 
-        # ====================================================
-        # 9. RETURN
-        # ====================================================
+        # ----------------------------------------------------
+        # 10. RETURN
+        # ----------------------------------------------------
 
         return {
+
             "status": "success",
+
             "version": "2.1.0",
+
             "youtube_url": url,
+
             "title": video_title,
+
             "language": language,
 
             "metadata": {
+
                 "youtube_title":
                     metadata.get(
                         "title",
                         ""
                     ),
+
                 "channel":
                     metadata.get(
                         "author_name",
                         ""
                     ),
+
                 "author_url":
                     metadata.get(
                         "author_url",
@@ -1155,17 +1419,25 @@ async def analyze(data: dict):
             },
 
             "processing": {
+
                 "total_segments":
                     len(segments),
+
                 "total_chunks":
                     len(chunks),
+
                 "transcript_characters":
                     len(full_transcript),
+
                 "stability":
-                    "temperature_0_no_speaker_analysis"
+                    "temperature_0",
+
+                "speaker_identification":
+                    False
             },
 
-            "summary": ai_summary,
+            "summary":
+                ai_summary,
 
             "transcript":
                 transcript_data
@@ -1175,21 +1447,22 @@ async def analyze(data: dict):
     except Exception as error:
 
         return {
+
             "status": "error",
-            "message": "Worker exception",
-            "error_type": type(error).__name__,
-            "error": str(error)
+
+            "message":
+                "Worker exception",
+
+            "error_type":
+                type(error).__name__,
+
+            "error":
+                str(error)
         }
 
 
 # ============================================================
-# WORKERS ENTRYPOINT
+# CLOUDFLARE WORKERS ENTRYPOINT
 # ============================================================
 
 Default = asgi.entrypoint(app)
-'''
-
-output.write_text(code, encoding="utf-8")
-
-print(f"File berhasil dibuat: {output}")
-print(f"Jumlah baris: {len(code.splitlines())}")
