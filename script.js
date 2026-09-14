@@ -1,3799 +1,1937 @@
+/* ============================================================
+   AI MEDIA MONITORING & ANALYSIS
+   SCRIPT.JS V1
+   ============================================================ */
+
 const API_URL =
     "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
 
+let currentData = null;
 let currentLanguage = "en";
-let currentAIData = null;
-let currentVideoData = null;
-let currentTranscriptData = null;
-let currentRawResponse = null;
-
 
 /* ============================================================
-   INITIALIZE
+   DOM
+   ============================================================ */
+
+const videoUrlInput = document.getElementById("videoUrl");
+const analyzeButton = document.getElementById("analyzeButton");
+const statusBox = document.getElementById("status");
+const videoInfoBox = document.getElementById("videoInfo");
+const transcriptBox = document.getElementById("transcript");
+
+/* ============================================================
+   INITIALIZATION
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-    initializeApplication();
-});
-
-
-function initializeApplication() {
-
-    const analyzeButton =
-        document.getElementById("analyzeButton");
-
-    const videoUrlInput =
-        document.getElementById("videoUrl");
-
-    if (!analyzeButton || !videoUrlInput) {
-
-        console.error(
-            "Required HTML elements were not found."
-        );
-
-        return;
+    if (analyzeButton) {
+        analyzeButton.addEventListener("click", analyzeVideo);
     }
 
-    analyzeButton.addEventListener(
-        "click",
-        analyzeVideo
-    );
-
-    videoUrlInput.addEventListener(
-        "keydown",
-        (event) => {
-
+    if (videoUrlInput) {
+        videoUrlInput.addEventListener("keydown", (event) => {
             if (event.key === "Enter") {
                 analyzeVideo();
             }
+        });
+    }
 
-        }
-    );
+    createDynamicResultArea();
+});
 
-    createLanguageSelector();
+/* ============================================================
+   CREATE RESULT AREA
+   ============================================================ */
+
+function createDynamicResultArea() {
+    const main = document.querySelector("main");
+
+    if (!main) {
+        return;
+    }
+
+    let result = document.getElementById("aiResult");
+
+    if (!result) {
+        result = document.createElement("section");
+        result.id = "aiResult";
+        main.insertBefore(
+            result,
+            document.querySelector(".transcript-card")
+        );
+    }
+
+    result.innerHTML = "";
 }
-
 
 /* ============================================================
    ANALYZE VIDEO
    ============================================================ */
 
 async function analyzeVideo() {
+    const url = videoUrlInput.value.trim();
 
-    const videoUrlInput =
-        document.getElementById("videoUrl");
-
-    const analyzeButton =
-        document.getElementById("analyzeButton");
-
-    if (!videoUrlInput || !analyzeButton) {
+    if (!url) {
+        showStatus("Please enter a YouTube URL.", "error");
         return;
     }
 
-    const videoUrl =
-        videoUrlInput.value.trim();
-
-
-    if (!videoUrl) {
-
-        showStatus(
-            "YouTube URL is required.",
-            "error"
-        );
-
+    if (!isValidYouTubeUrl(url)) {
+        showStatus("Please enter a valid YouTube URL.", "error");
         return;
     }
 
-
-    if (!isYouTubeUrl(videoUrl)) {
-
-        showStatus(
-            "Please enter a valid YouTube URL.",
-            "error"
-        );
-
-        return;
-    }
-
-
-    setLoadingState(true);
-
-    clearPreviousResults();
-
+    setLoading(true);
 
     showStatus(
-        "Analyzing video. Please wait...",
+        "Analyzing video transcript and generating AI media analysis...",
         "loading"
     );
 
+    videoInfoBox.innerHTML = `
+        <p>Processing video...</p>
+    `;
+
+    transcriptBox.innerHTML = `
+        <p>Processing transcript...</p>
+    `;
+
+    const resultArea = document.getElementById("aiResult");
+
+    if (resultArea) {
+        resultArea.innerHTML = "";
+    }
 
     try {
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                url: url
+            })
+        });
 
-        console.log(
-            "========================================"
-        );
+        const rawText = await response.text();
 
-        console.log(
-            "AI VIDEO SUMMARIZER"
-        );
-
-        console.log(
-            "Sending request to:",
-            API_URL
-        );
-
-        console.log(
-            "Video URL:",
-            videoUrl
-        );
-
-
-        const response =
-            await fetch(
-                API_URL,
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json",
-
-                        "Accept":
-                            "application/json"
-                    },
-
-                    body: JSON.stringify({
-                        video_url:
-                            videoUrl
-                    })
-                }
-            );
-
-
-        const rawText =
-            await response.text();
-
-
-        console.log(
-            "HTTP STATUS:",
-            response.status
-        );
-
-        console.log(
-            "RAW RESPONSE:",
-            rawText
-        );
-
-
-        let data;
-
+        let data = null;
 
         try {
-
-            data =
-                JSON.parse(rawText);
-
-        } catch (jsonError) {
-
-            console.error(
-                "JSON PARSE ERROR:",
-                jsonError
-            );
-
+            data = JSON.parse(rawText);
+        } catch (parseError) {
             throw new Error(
-                "Server returned invalid JSON."
+                "Server returned an invalid JSON response."
             );
         }
-
-
-        console.log(
-            "PARSED RESPONSE:",
-            data
-        );
-
 
         if (!response.ok) {
-
-            const errorMessage =
-                data?.detail ||
-                data?.error ||
-                data?.message ||
-                `Server error: ${response.status}`;
-
             throw new Error(
-                errorMessage
+                getServerErrorMessage(data, response.status)
             );
         }
 
+        currentData = data;
 
-        /*
-         * SAVE COMPLETE RESPONSE
-         */
+        const aiData = extractAIData(data);
 
-        currentRawResponse =
-            data;
-
-
-        /*
-         * UNWRAP RESPONSE
-         */
-
-        const normalizedData =
-            unwrapResponse(data);
-
-
-        console.log(
-            "NORMALIZED RESPONSE:",
-            normalizedData
-        );
-
-
-        /*
-         * EXTRACT DATA
-         */
-
-        currentVideoData =
-            normalizedData;
-
-
-        currentAIData =
-            extractAIData(
-                normalizedData
-            );
-
-
-        currentTranscriptData =
-            getTranscriptData(
-                normalizedData
-            );
-
-
-        console.log(
-            "========================================"
-        );
-
-        console.log(
-            "EXTRACTED AI DATA:",
-            currentAIData
-        );
-
-        console.log(
-            "EXTRACTED TRANSCRIPT:",
-            currentTranscriptData
-        );
-
-
-        /*
-         * VALIDATE AI
-         */
-
-        if (!currentAIData) {
-
-            const keys =
-                getResponseKeys(
-                    data
-                );
-
-
-            console.error(
-                "AI DATA NOT FOUND."
-            );
-
-            console.error(
-                "Response keys:",
-                keys
-            );
-
+        if (!aiData) {
+            console.error("Server response:", data);
 
             throw new Error(
-                "AI analysis result was not found. " +
-                "Response keys received: " +
-                keys.join(", ")
+                "AI analysis result was not found in server response."
             );
         }
 
-
-        /*
-         * RENDER
-         */
-
-        renderVideoInformation(
-            normalizedData
-        );
-
-
-        renderAnalysis(
-            currentLanguage
-        );
-
-
-        renderTranscript(
-            currentTranscriptData
-        );
-
-
-        updateLanguageSelector();
-
+        renderVideoInformation(data);
+        renderAIAnalysis(aiData);
+        renderTranscript(data);
 
         showStatus(
             "Analysis completed successfully.",
             "success"
         );
-
-
     } catch (error) {
-
-        console.error(
-            "========================================"
-        );
-
-        console.error(
-            "ANALYSIS ERROR"
-        );
-
-        console.error(
-            error
-        );
-
+        console.error("Analysis error:", error);
 
         showStatus(
-            error.message ||
-            "Failed to analyze video.",
+            error.message || "Failed to analyze video.",
             "error"
         );
 
+        videoInfoBox.innerHTML = `
+            <div class="error-box">
+                ${escapeHTML(
+                    error.message ||
+                    "Failed to analyze video."
+                )}
+            </div>
+        `;
 
-        renderErrorResult(
-            error.message ||
-            "An unexpected error occurred."
-        );
-
-
+        transcriptBox.innerHTML = `
+            <p>Transcript unavailable.</p>
+        `;
     } finally {
-
-        setLoadingState(false);
+        setLoading(false);
     }
 }
-
 
 /* ============================================================
-   UNWRAP RESPONSE
+   VALIDATE YOUTUBE URL
    ============================================================ */
 
-function unwrapResponse(data) {
+function isValidYouTubeUrl(url) {
+    try {
+        const parsed = new URL(url);
 
-    if (!data) {
-        return null;
+        const host = parsed.hostname
+            .toLowerCase()
+            .replace("www.", "");
+
+        return (
+            host === "youtube.com" ||
+            host === "m.youtube.com" ||
+            host === "youtu.be"
+        );
+    } catch {
+        return false;
     }
-
-
-    /*
-     * Direct response
-     */
-
-    if (
-        data.ai ||
-        data.transcript ||
-        data.video
-    ) {
-
-        return data;
-    }
-
-
-    /*
-     * Common wrappers
-     */
-
-    if (
-        data.data &&
-        typeof data.data === "object"
-    ) {
-
-        if (
-            data.data.ai ||
-            data.data.transcript ||
-            data.data.video
-        ) {
-
-            return data.data;
-        }
-    }
-
-
-    if (
-        data.result &&
-        typeof data.result === "object"
-    ) {
-
-        if (
-            data.result.ai ||
-            data.result.transcript ||
-            data.result.video
-        ) {
-
-            return data.result;
-        }
-    }
-
-
-    if (
-        data.response &&
-        typeof data.response === "object"
-    ) {
-
-        if (
-            data.response.ai ||
-            data.response.transcript ||
-            data.response.video
-        ) {
-
-            return data.response;
-        }
-    }
-
-
-    return data;
 }
 
+/* ============================================================
+   STATUS
+   ============================================================ */
+
+function showStatus(message, type = "") {
+    if (!statusBox) {
+        return;
+    }
+
+    statusBox.className = type;
+    statusBox.textContent = message;
+}
+
+/* ============================================================
+   LOADING
+   ============================================================ */
+
+function setLoading(isLoading) {
+    if (!analyzeButton) {
+        return;
+    }
+
+    analyzeButton.disabled = isLoading;
+
+    if (isLoading) {
+        analyzeButton.dataset.originalText =
+            analyzeButton.textContent;
+
+        analyzeButton.innerHTML = `
+            <span class="loading-container">
+                <span class="loading-spinner"></span>
+                ANALYZING
+            </span>
+        `;
+    } else {
+        analyzeButton.textContent =
+            analyzeButton.dataset.originalText ||
+            "ANALYZE";
+    }
+}
+
+/* ============================================================
+   SERVER ERROR
+   ============================================================ */
+
+function getServerErrorMessage(data, statusCode) {
+    if (!data) {
+        return `Server error (${statusCode}).`;
+    }
+
+    if (typeof data.detail === "string") {
+        return data.detail;
+    }
+
+    if (typeof data.error === "string") {
+        return data.error;
+    }
+
+    if (typeof data.message === "string") {
+        return data.message;
+    }
+
+    if (data.detail && typeof data.detail === "object") {
+        return JSON.stringify(data.detail);
+    }
+
+    return `Server error (${statusCode}).`;
+}
 
 /* ============================================================
    EXTRACT AI DATA
    ============================================================ */
 
 function extractAIData(data) {
-
-    if (!data) {
+    if (!data || typeof data !== "object") {
         return null;
     }
 
+    const directCandidates = [
+        data.ai,
+        data.analysis,
+        data.result,
+        data.ai_result,
+        data.aiAnalysis,
+        data.video_analysis,
+        data.videoAnalysis
+    ];
 
-    /*
-     * DIRECT BACKEND FORMAT
-     *
-     * data.ai
-     */
-
-    if (
-        data.ai &&
-        typeof data.ai === "object"
-    ) {
-
+    for (const candidate of directCandidates) {
         if (
-            data.ai.en ||
-            data.ai.id
+            candidate &&
+            typeof candidate === "object"
         ) {
-
-            return data.ai;
+            return candidate;
         }
     }
 
-
-    /*
-     * data.data.ai
-     */
-
     if (
-        data.data &&
-        typeof data.data === "object"
+        data.summary ||
+        data.key_points ||
+        data.keyPoints ||
+        data.sentiment ||
+        data.main_issue ||
+        data.mainIssue
     ) {
-
-        if (
-            data.data.ai &&
-            typeof data.data.ai === "object"
-        ) {
-
-            if (
-                data.data.ai.en ||
-                data.data.ai.id
-            ) {
-
-                return data.data.ai;
-            }
-        }
-    }
-
-
-    /*
-     * data.result.ai
-     */
-
-    if (
-        data.result &&
-        typeof data.result === "object"
-    ) {
-
-        if (
-            data.result.ai &&
-            typeof data.result.ai === "object"
-        ) {
-
-            if (
-                data.result.ai.en ||
-                data.result.ai.id
-            ) {
-
-                return data.result.ai;
-            }
-        }
-    }
-
-
-    /*
-     * data.analysis
-     */
-
-    if (
-        data.analysis &&
-        typeof data.analysis === "object"
-    ) {
-
-        if (
-            data.analysis.en ||
-            data.analysis.id
-        ) {
-
-            return data.analysis;
-        }
-    }
-
-
-    /*
-     * data.result
-     */
-
-    if (
-        data.result &&
-        typeof data.result === "object"
-    ) {
-
-        if (
-            data.result.en ||
-            data.result.id
-        ) {
-
-            return data.result;
-        }
-    }
-
-
-    /*
-     * DIRECT EN / ID
-     */
-
-    if (
-        data.en &&
-        typeof data.en === "object"
-    ) {
-
         return data;
     }
 
-
-    /*
-     * RECURSIVE SEARCH
-     *
-     * Search deeper if Cloudflare
-     * wraps the response.
-     */
-
-    const found =
-        findAIObject(
-            data
-        );
-
-
-    if (found) {
-        return found;
-    }
-
-
-    return null;
+    return recursiveFindAI(data);
 }
-
 
 /* ============================================================
    RECURSIVE AI SEARCH
    ============================================================ */
 
-function findAIObject(
-    object,
-    depth = 0
-) {
-
-    if (
-        !object ||
-        typeof object !== "object"
-    ) {
-
+function recursiveFindAI(object, depth = 0) {
+    if (!object || typeof object !== "object") {
         return null;
     }
-
-
-    /*
-     * Prevent infinite recursion
-     */
 
     if (depth > 8) {
         return null;
     }
 
-
-    /*
-     * Detect EN / ID object
-     */
-
     if (
-        object.en &&
-        typeof object.en === "object"
+        object.summary ||
+        object.key_points ||
+        object.keyPoints ||
+        object.sentiment ||
+        object.main_issue ||
+        object.mainIssue ||
+        object.media_analysis ||
+        object.mediaAnalysis
     ) {
-
-        const en =
-            object.en;
-
-        const id =
-            object.id;
-
-
-        /*
-         * Check whether this really
-         * looks like our AI report.
-         */
-
-        if (
-            en.summary ||
-            en.key_points ||
-            en.critical_analysis ||
-            en.implications ||
-            en.takeaways
-        ) {
-
-            return {
-                en:
-                    en,
-
-                id:
-                    id ||
-                    null
-            };
-        }
+        return object;
     }
 
-
-    /*
-     * Search child objects
-     */
-
-    const keys =
-        Object.keys(
-            object
-        );
-
-
-    for (
-        const key of keys
-    ) {
-
-        const value =
-            object[key];
-
+    for (const key of Object.keys(object)) {
+        const value = object[key];
 
         if (
             value &&
             typeof value === "object"
         ) {
+            const found = recursiveFindAI(
+                value,
+                depth + 1
+            );
 
-            const result =
-                findAIObject(
-                    value,
-                    depth + 1
-                );
-
-
-            if (result) {
-                return result;
+            if (found) {
+                return found;
             }
         }
     }
 
-
     return null;
 }
 
-
 /* ============================================================
-   TRANSCRIPT
+   LANGUAGE DATA
    ============================================================ */
 
-function getTranscriptData(data) {
-
-    if (!data) {
-        return null;
-    }
-
-
-    /*
-     * Direct transcript
-     */
-
+function getLanguageData(value) {
     if (
-        data.transcript &&
-        typeof data.transcript === "object"
+        value === null ||
+        value === undefined
     ) {
-
-        return normalizeTranscriptObject(
-            data.transcript
-        );
+        return "";
     }
 
-
-    /*
-     * data.data.transcript
-     */
-
-    if (
-        data.data &&
-        data.data.transcript
-    ) {
-
-        return normalizeTranscriptObject(
-            data.data.transcript
-        );
+    if (typeof value === "string") {
+        return value;
     }
 
-
-    /*
-     * data.result.transcript
-     */
-
-    if (
-        data.result &&
-        data.result.transcript
-    ) {
-
-        return normalizeTranscriptObject(
-            data.result.transcript
-        );
+    if (Array.isArray(value)) {
+        return value;
     }
 
-
-    /*
-     * Recursive fallback
-     */
-
-    const transcript =
-        findTranscriptObject(
-            data
-        );
-
-
-    if (transcript) {
-        return transcript;
+    if (typeof value !== "object") {
+        return String(value);
     }
-
-
-    return null;
-}
-
-
-/* ============================================================
-   NORMALIZE TRANSCRIPT
-   ============================================================ */
-
-function normalizeTranscriptObject(
-    object
-) {
-
-    if (!object) {
-        return null;
-    }
-
-
-    let transcript =
-        object.transcript;
-
-
-    if (
-        !Array.isArray(
-            transcript
-        )
-    ) {
-
-        if (
-            typeof transcript ===
-            "string"
-        ) {
-
-            transcript = [
-                {
-                    text:
-                        transcript,
-
-                    start:
-                        0,
-
-                    duration:
-                        0
-                }
-            ];
-
-        } else {
-
-            transcript = [];
-        }
-    }
-
-
-    return {
-
-        title:
-            object.title ||
-            "Unknown Video",
-
-        language:
-            object.language ||
-            "unknown",
-
-        transcript:
-            transcript
-    };
-}
-
-
-/* ============================================================
-   FIND TRANSCRIPT
-   ============================================================ */
-
-function findTranscriptObject(
-    object,
-    depth = 0
-) {
-
-    if (
-        !object ||
-        typeof object !== "object"
-    ) {
-
-        return null;
-    }
-
-
-    if (depth > 8) {
-        return null;
-    }
-
-
-    if (
-        Array.isArray(
-            object.transcript
-        )
-    ) {
-
-        return normalizeTranscriptObject(
-            object
-        );
-    }
-
-
-    for (
-        const key of Object.keys(
-            object
-        )
-    ) {
-
-        const value =
-            object[key];
-
-
-        if (
-            value &&
-            typeof value === "object"
-        ) {
-
-            const result =
-                findTranscriptObject(
-                    value,
-                    depth + 1
-                );
-
-
-            if (result) {
-                return result;
-            }
-        }
-    }
-
-
-    return null;
-}
-
-
-/* ============================================================
-   VIDEO INFORMATION
-   ============================================================ */
-
-function renderVideoInformation(
-    data
-) {
-
-    const videoInfo =
-        document.getElementById(
-            "videoInfo"
-        );
-
-
-    if (!videoInfo) {
-        return;
-    }
-
-
-    const transcriptData =
-        getTranscriptData(
-            data
-        );
-
-
-    const title =
-        transcriptData?.title ||
-        data?.title ||
-        "Unknown Video";
-
-
-    const language =
-        transcriptData?.language ||
-        data?.language ||
-        "Unknown";
-
-
-    const processing =
-        data?.processing ||
-        {};
-
-
-    const totalSegments =
-        processing.total_segments ??
-        transcriptData?.transcript?.length ??
-        0;
-
-
-    const totalChunks =
-        processing.total_chunks ??
-        "-";
-
-
-    const transcriptCharacters =
-        processing.transcript_characters ??
-        "-";
-
-
-    const transcriptHash =
-        processing.transcript_hash ||
-        "-";
-
-
-    videoInfo.innerHTML = `
-
-        <div class="video-info-grid">
-
-            <div class="info-item">
-
-                <span class="info-label">
-                    TITLE
-                </span>
-
-                <span class="info-value">
-                    ${escapeHtml(title)}
-                </span>
-
-            </div>
-
-
-            <div class="info-item">
-
-                <span class="info-label">
-                    LANGUAGE
-                </span>
-
-                <span class="info-value">
-                    ${escapeHtml(
-                        String(
-                            language
-                        ).toUpperCase()
-                    )}
-                </span>
-
-            </div>
-
-
-            <div class="info-item">
-
-                <span class="info-label">
-                    TRANSCRIPT SEGMENTS
-                </span>
-
-                <span class="info-value">
-                    ${escapeHtml(
-                        String(
-                            totalSegments
-                        )
-                    )}
-                </span>
-
-            </div>
-
-
-            <div class="info-item">
-
-                <span class="info-label">
-                    ANALYSIS CHUNKS
-                </span>
-
-                <span class="info-value">
-                    ${escapeHtml(
-                        String(
-                            totalChunks
-                        )
-                    )}
-                </span>
-
-            </div>
-
-
-            <div class="info-item">
-
-                <span class="info-label">
-                    TRANSCRIPT CHARACTERS
-                </span>
-
-                <span class="info-value">
-                    ${escapeHtml(
-                        String(
-                            transcriptCharacters
-                        )
-                    )}
-                </span>
-
-            </div>
-
-
-            <div class="info-item">
-
-                <span class="info-label">
-                    TRANSCRIPT HASH
-                </span>
-
-                <span class="info-value info-hash">
-                    ${escapeHtml(
-                        String(
-                            transcriptHash
-                        )
-                    )}
-                </span>
-
-            </div>
-
-        </div>
-    `;
-}
-
-
-/* ============================================================
-   LANGUAGE SELECTOR
-   ============================================================ */
-
-function createLanguageSelector() {
-
-    const resultCard =
-        document.querySelector(
-            ".result-card"
-        );
-
-
-    if (!resultCard) {
-        return;
-    }
-
-
-    if (
-        document.getElementById(
-            "languageSelectorContainer"
-        )
-    ) {
-
-        return;
-    }
-
-
-    const container =
-        document.createElement(
-            "div"
-        );
-
-
-    container.id =
-        "languageSelectorContainer";
-
-
-    container.innerHTML = `
-
-        <div class="language-selector-wrapper">
-
-            <label
-                for="languageSelector"
-            >
-                REPORT LANGUAGE
-            </label>
-
-
-            <select
-                id="languageSelector"
-            >
-
-                <option value="en">
-                    English
-                </option>
-
-                <option value="id">
-                    Bahasa Indonesia
-                </option>
-
-            </select>
-
-        </div>
-    `;
-
-
-    resultCard.appendChild(
-        container
-    );
-
-
-    const selector =
-        document.getElementById(
-            "languageSelector"
-        );
-
-
-    if (selector) {
-
-        selector.addEventListener(
-            "change",
-            handleLanguageChange
-        );
-    }
-}
-
-
-/* ============================================================
-   LANGUAGE CHANGE
-   ============================================================ */
-
-function handleLanguageChange(
-    event
-) {
-
-    const language =
-        event.target.value;
-
-
-    if (
-        language !== "en" &&
-        language !== "id"
-    ) {
-
-        return;
-    }
-
-
-    currentLanguage =
-        language;
-
-
-    if (currentAIData) {
-
-        renderAnalysis(
-            currentLanguage
-        );
-    }
-}
-
-
-/* ============================================================
-   UPDATE LANGUAGE SELECTOR
-   ============================================================ */
-
-function updateLanguageSelector() {
-
-    const selector =
-        document.getElementById(
-            "languageSelector"
-        );
-
-
-    if (!selector) {
-        return;
-    }
-
-
-    const hasEnglish =
-        !!currentAIData?.en;
-
-
-    const hasIndonesian =
-        !!currentAIData?.id;
-
-
-    const englishOption =
-        selector.querySelector(
-            'option[value="en"]'
-        );
-
-
-    const indonesianOption =
-        selector.querySelector(
-            'option[value="id"]'
-        );
-
-
-    if (englishOption) {
-
-        englishOption.disabled =
-            !hasEnglish;
-    }
-
-
-    if (indonesianOption) {
-
-        indonesianOption.disabled =
-            !hasIndonesian;
-    }
-
-
-    if (
-        currentLanguage === "en" &&
-        !hasEnglish &&
-        hasIndonesian
-    ) {
-
-        currentLanguage =
-            "id";
-
-        selector.value =
-            "id";
-    }
-
 
     if (
         currentLanguage === "id" &&
-        !hasIndonesian &&
-        hasEnglish
+        value.id !== undefined
     ) {
-
-        currentLanguage =
-            "en";
-
-        selector.value =
-            "en";
+        return value.id;
     }
+
+    if (
+        currentLanguage === "en" &&
+        value.en !== undefined
+    ) {
+        return value.en;
+    }
+
+    if (
+        value.en !== undefined
+    ) {
+        return value.en;
+    }
+
+    if (
+        value.id !== undefined
+    ) {
+        return value.id;
+    }
+
+    return value;
 }
 
-
 /* ============================================================
-   RENDER ANALYSIS
+   FIND FIELD
    ============================================================ */
 
-function renderAnalysis(
-    language
-) {
+function getField(object, ...keys) {
+    if (
+        !object ||
+        typeof object !== "object"
+    ) {
+        return null;
+    }
 
-    const report =
-        currentAIData?.[language];
+    for (const key of keys) {
+        if (
+            object[key] !== undefined &&
+            object[key] !== null
+        ) {
+            return object[key];
+        }
+    }
 
+    return null;
+}
 
-    if (!report) {
+/* ============================================================
+   RENDER VIDEO INFORMATION
+   ============================================================ */
 
-        renderMissingAnalysis();
+function renderVideoInformation(data) {
+    const video =
+        data.video ||
+        data.video_info ||
+        data.videoInfo ||
+        {};
 
+    const transcript =
+        data.transcript || {};
+
+    const title =
+        transcript.title ||
+        video.title ||
+        data.title ||
+        "Untitled Video";
+
+    const language =
+        transcript.language ||
+        video.language ||
+        data.language ||
+        "-";
+
+    const videoId =
+        video.id ||
+        data.video_id ||
+        data.videoId ||
+        extractYouTubeId(
+            video.url ||
+            data.url ||
+            videoUrlInput.value
+        );
+
+    const url =
+        video.url ||
+        data.url ||
+        videoUrlInput.value;
+
+    videoInfoBox.innerHTML = `
+        <div class="info-item">
+            <strong>Title</strong>
+            <span>${escapeHTML(title)}</span>
+        </div>
+
+        <div class="info-item">
+            <strong>Video ID</strong>
+            <span>${escapeHTML(videoId || "-")}</span>
+        </div>
+
+        <div class="info-item">
+            <strong>Language</strong>
+            <span>${escapeHTML(language)}</span>
+        </div>
+
+        <div class="info-item">
+            <strong>URL</strong>
+            <span>${escapeHTML(url)}</span>
+        </div>
+    `;
+}
+
+/* ============================================================
+   RENDER AI ANALYSIS
+   ============================================================ */
+
+function renderAIAnalysis(ai) {
+    const resultArea =
+        document.getElementById("aiResult");
+
+    if (!resultArea) {
         return;
     }
-
-
-    const transcriptCard =
-        document.querySelector(
-            ".transcript-card"
-        );
-
-
-    if (!transcriptCard) {
-        return;
-    }
-
-
-    let container =
-        document.getElementById(
-            "professionalAnalysis"
-        );
-
-
-    if (!container) {
-
-        container =
-            document.createElement(
-                "div"
-            );
-
-
-        container.id =
-            "professionalAnalysis";
-
-
-        container.className =
-            "professional-analysis";
-
-
-        transcriptCard.parentNode.insertBefore(
-            container,
-            transcriptCard
-        );
-    }
-
 
     const summary =
-        normalizeText(
-            report.summary
+        getField(
+            ai,
+            "summary",
+            "executive_summary"
         );
 
+    const sentiment =
+        getField(
+            ai,
+            "sentiment"
+        );
+
+    const mainIssue =
+        getField(
+            ai,
+            "main_issue",
+            "mainIssue",
+            "isu_utama"
+        );
 
     const keyPoints =
-        normalizeArray(
-            report.key_points
+        getField(
+            ai,
+            "key_points",
+            "keyPoints"
         );
 
+    const mediaAnalysis =
+        getField(
+            ai,
+            "media_analysis",
+            "mediaAnalysis",
+            "analisis_media"
+        );
+
+    const communicationRisk =
+        getField(
+            ai,
+            "communication_risk",
+            "communicationRisk",
+            "risiko_komunikasi"
+        );
+
+    const recommendations =
+        getField(
+            ai,
+            "recommendations",
+            "recommendation",
+            "rekomendasi"
+        );
 
     const criticalAnalysis =
-        normalizeArray(
-            report.critical_analysis
+        getField(
+            ai,
+            "critical_analysis",
+            "criticalAnalysis"
         );
-
 
     const implications =
-        normalizeArray(
-            report.implications
+        getField(
+            ai,
+            "implications",
+            "implication"
         );
-
 
     const takeaways =
-        normalizeArray(
-            report.takeaways
+        getField(
+            ai,
+            "takeaways",
+            "key_takeaways"
         );
 
+    resultArea.innerHTML = `
+        ${createToolbar()}
 
-    container.innerHTML = `
+        <div class="analysis-grid">
 
-        <div class="analysis-header">
+            ${createSummaryCard(summary)}
 
-            <div>
+            ${createSentimentCard(sentiment)}
 
-                <h2>
-                    PROFESSIONAL CONTENT ANALYSIS
-                </h2>
+            ${createIssueCard(mainIssue)}
 
-                <p class="analysis-language">
-                    ${
-                        language === "id"
-                            ? "Bahasa Indonesia"
-                            : "English"
-                    }
-                </p>
+            ${createKeyPointsCard(keyPoints)}
 
-            </div>
+            ${createMediaAnalysisCard(mediaAnalysis)}
 
+            ${createRiskCard(communicationRisk)}
+
+            ${createRecommendationsCard(recommendations)}
+
+            ${createTextCard(
+                "Critical Analysis",
+                criticalAnalysis
+            )}
+
+            ${createTextCard(
+                "Implications",
+                implications
+            )}
+
+            ${createTakeawaysCard(takeaways)}
+
+        </div>
+    `;
+
+    attachToolbarEvents();
+}
+
+/* ============================================================
+   TOOLBAR
+   ============================================================ */
+
+function createToolbar() {
+    return `
+        <div class="result-toolbar">
 
             <button
-                id="downloadPdfButton"
-                class="pdf-button"
                 type="button"
-            >
-                DOWNLOAD PDF
+                id="languageEn"
+                class="language-button">
+                EN
+            </button>
+
+            <button
+                type="button"
+                id="languageId"
+                class="language-button">
+                ID
+            </button>
+
+            <button
+                type="button"
+                id="exportPdfButton">
+                Export PDF
             </button>
 
         </div>
-
-
-        <section class="analysis-section">
-
-            <h3>
-                EXECUTIVE SUMMARY
-            </h3>
-
-            <div class="summary-content">
-
-                ${
-                    formatParagraphs(
-                        summary
-                    )
-                }
-
-            </div>
-
-        </section>
-
-
-        <section class="analysis-section">
-
-            <h3>
-                KEY POINTS
-            </h3>
-
-            <div class="numbered-list">
-
-                ${
-                    renderNumberedList(
-                        keyPoints
-                    )
-                }
-
-            </div>
-
-        </section>
-
-
-        <section class="analysis-section">
-
-            <h3>
-                CRITICAL ANALYSIS
-            </h3>
-
-            <div class="numbered-list">
-
-                ${
-                    renderNumberedList(
-                        criticalAnalysis
-                    )
-                }
-
-            </div>
-
-        </section>
-
-
-        <section class="analysis-section">
-
-            <h3>
-                IMPLICATIONS
-            </h3>
-
-            <div class="numbered-list">
-
-                ${
-                    renderNumberedList(
-                        implications
-                    )
-                }
-
-            </div>
-
-        </section>
-
-
-        <section class="analysis-section">
-
-            <h3>
-                KEY TAKEAWAYS
-            </h3>
-
-            <div class="takeaway-list">
-
-                ${
-                    renderBulletList(
-                        takeaways
-                    )
-                }
-
-            </div>
-
-        </section>
     `;
+}
 
+/* ============================================================
+   TOOLBAR EVENTS
+   ============================================================ */
 
-    const pdfButton =
+function attachToolbarEvents() {
+    const enButton =
+        document.getElementById("languageEn");
+
+    const idButton =
+        document.getElementById("languageId");
+
+    const exportButton =
         document.getElementById(
-            "downloadPdfButton"
+            "exportPdfButton"
         );
 
-
-    if (pdfButton) {
-
-        pdfButton.addEventListener(
+    if (enButton) {
+        enButton.addEventListener(
             "click",
-            generatePdf
+            () => {
+                currentLanguage = "en";
+
+                const ai =
+                    extractAIData(currentData);
+
+                if (ai) {
+                    renderAIAnalysis(ai);
+                }
+            }
+        );
+    }
+
+    if (idButton) {
+        idButton.addEventListener(
+            "click",
+            () => {
+                currentLanguage = "id";
+
+                const ai =
+                    extractAIData(currentData);
+
+                if (ai) {
+                    renderAIAnalysis(ai);
+                }
+            }
+        );
+    }
+
+    if (exportButton) {
+        exportButton.addEventListener(
+            "click",
+            exportPDF
         );
     }
 }
 
 /* ============================================================
-   LOAD JSPDF
+   SUMMARY CARD
    ============================================================ */
 
-function loadJsPDF() {
-
-    return new Promise(
-        (resolve, reject) => {
-
-            if (
-                window.jspdf &&
-                window.jspdf.jsPDF
-            ) {
-
-                resolve();
-
-                return;
-            }
-
-
-            const existing =
-                document.getElementById(
-                    "jspdfLibrary"
-                );
-
-
-            if (existing) {
-
-                existing.addEventListener(
-                    "load",
-                    () => resolve()
-                );
-
-                existing.addEventListener(
-                    "error",
-                    () =>
-                        reject(
-                            new Error(
-                                "Failed to load jsPDF."
-                            )
-                        )
-                );
-
-                return;
-            }
-
-
-            const script =
-                document.createElement(
-                    "script"
-                );
-
-
-            script.id =
-                "jspdfLibrary";
-
-
-            script.src =
-                "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-
-
-            script.onload =
-                () => {
-
-                    if (
-                        window.jspdf &&
-                        window.jspdf.jsPDF
-                    ) {
-
-                        resolve();
-
-                    } else {
-
-                        reject(
-                            new Error(
-                                "jsPDF loaded but is unavailable."
-                            )
-                        );
-                    }
-                };
-
-
-            script.onerror =
-                () => {
-
-                    reject(
-                        new Error(
-                            "Unable to load jsPDF library."
-                        )
-                    );
-                };
-
-
-            document.head.appendChild(
-                script
-            );
-        }
-    );
-}
-
-
-/* ============================================================
-   PDF SECTION TITLE
-   ============================================================ */
-
-function pdfSectionTitle(
-    doc,
-    title,
-    x,
-    y
-) {
-
-    y =
-        pdfEnsureSpace(
-            doc,
-            y,
-            15
-        );
-
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-
-    doc.setFontSize(
-        11
-    );
-
-
-    doc.text(
-        String(title),
-        x,
-        y
-    );
-
-
-    y += 7;
-
-
-    return y;
-}
-
-
-/* ============================================================
-   PDF INFO ROW
-   ============================================================ */
-
-function pdfInfoRow(
-    doc,
-    label,
-    value,
-    x,
-    y,
-    width
-) {
-
-    const labelWidth =
-        45;
-
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-
-    doc.setFontSize(
-        8.5
-    );
-
-
-    doc.text(
-        String(label),
-        x,
-        y
-    );
-
-
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-
-    const valueLines =
-        doc.splitTextToSize(
-            String(value || "-"),
-            width - labelWidth
-        );
-
-
-    doc.text(
-        valueLines,
-        x + labelWidth,
-        y
-    );
-
-
-    y +=
-        Math.max(
-            5,
-            valueLines.length * 4
-        );
-
-
-    return y;
-}
-
-
-/* ============================================================
-   PDF PARAGRAPH
-   ============================================================ */
-
-function pdfParagraph(
-    doc,
-    text,
-    x,
-    y,
-    width
-) {
-
-    const value =
-        normalizeText(
-            text
-        );
-
-
+function createSummaryCard(value) {
     if (!value) {
-
-        return y;
+        return "";
     }
 
+    return `
+        <article class="analysis-card full-width">
+            <h3>Summary</h3>
 
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-
-    doc.setFontSize(
-        9
-    );
-
-
-    const paragraphs =
-        value.split(
-            /\n{2,}/
-        );
-
-
-    for (
-        const paragraph of paragraphs
-    ) {
-
-        const lines =
-            doc.splitTextToSize(
-                paragraph.trim(),
-                width
-            );
-
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                lines.length * 4.5 + 3
-            );
-
-
-        doc.text(
-            lines,
-            x,
-            y
-        );
-
-
-        y +=
-            lines.length * 4.5 +
-            3;
-    }
-
-
-    return y;
+            <div class="summary-text">
+                ${renderText(value)}
+            </div>
+        </article>
+    `;
 }
 
-
 /* ============================================================
-   PDF NUMBERED SECTION
+   SENTIMENT CARD
    ============================================================ */
 
-function pdfNumberedSection(
-    doc,
-    items,
-    x,
-    y,
-    width
-) {
+function createSentimentCard(value) {
+    if (!value) {
+        return "";
+    }
+
+    let label = getLanguageData(value);
 
     if (
-        !items ||
-        items.length === 0
+        typeof label === "object"
     ) {
-
-        return pdfParagraph(
-            doc,
-            "No information available.",
-            x,
-            y,
-            width
-        );
+        label =
+            label.label ||
+            label.value ||
+            label.result ||
+            label.sentiment ||
+            JSON.stringify(label);
     }
 
+    label = String(label);
 
-    for (
-        let i = 0;
-        i < items.length;
-        i++
-    ) {
+    const normalized =
+        label.toLowerCase();
 
-        const item =
-            normalizeText(
-                items[i]
-            );
-
-
-        if (!item) {
-            continue;
-        }
-
-
-        doc.setFont(
-            "helvetica",
-            "bold"
-        );
-
-
-        doc.setFontSize(
-            9
-        );
-
-
-        const number =
-            `${String(
-                i + 1
-            ).padStart(
-                2,
-                "0"
-            )}.`;
-
-
-        const textWidth =
-            width - 10;
-
-
-        const lines =
-            doc.splitTextToSize(
-                item,
-                textWidth
-            );
-
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                lines.length * 4.5 + 5
-            );
-
-
-        doc.text(
-            number,
-            x,
-            y
-        );
-
-
-        doc.setFont(
-            "helvetica",
-            "normal"
-        );
-
-
-        doc.text(
-            lines,
-            x + 10,
-            y
-        );
-
-
-        y +=
-            lines.length * 4.5 +
-            5;
-    }
-
-
-    return y;
-}
-
-
-/* ============================================================
-   PDF BULLET SECTION
-   ============================================================ */
-
-function pdfBulletSection(
-    doc,
-    items,
-    x,
-    y,
-    width
-) {
+    let className =
+        "sentiment-neutral";
 
     if (
-        !items ||
-        items.length === 0
+        normalized.includes("positive") ||
+        normalized.includes("positif")
     ) {
-
-        return pdfParagraph(
-            doc,
-            "No information available.",
-            x,
-            y,
-            width
-        );
-    }
-
-
-    for (
-        const item of items
+        className =
+            "sentiment-positive";
+    } else if (
+        normalized.includes("negative") ||
+        normalized.includes("negatif")
     ) {
-
-        const text =
-            normalizeText(
-                item
-            );
-
-
-        if (!text) {
-            continue;
-        }
-
-
-        const lines =
-            doc.splitTextToSize(
-                text,
-                width - 8
-            );
-
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                lines.length * 4.5 + 4
-            );
-
-
-        doc.setFont(
-            "helvetica",
-            "normal"
-        );
-
-
-        doc.setFontSize(
-            9
-        );
-
-
-        doc.text(
-            "•",
-            x,
-            y
-        );
-
-
-        doc.text(
-            lines,
-            x + 7,
-            y
-        );
-
-
-        y +=
-            lines.length * 4.5 +
-            4;
+        className =
+            "sentiment-negative";
     }
 
+    return `
+        <article class="analysis-card">
+            <h3>Sentiment</h3>
 
-    return y;
-}
-
-
-/* ============================================================
-   PDF WRAPPED TEXT
-   ============================================================ */
-
-function pdfWriteWrapped(
-    doc,
-    text,
-    x,
-    y,
-    width,
-    lineHeight
-) {
-
-    const lines =
-        doc.splitTextToSize(
-            String(text || ""),
-            width
-        );
-
-
-    doc.text(
-        lines,
-        x,
-        y
-    );
-
-
-    return (
-        y +
-        lines.length *
-            lineHeight
-    );
-}
-
-
-/* ============================================================
-   PDF LINE
-   ============================================================ */
-
-function pdfLine(
-    doc,
-    x1,
-    y1,
-    x2,
-    y2
-) {
-
-    doc.setLineWidth(
-        0.2
-    );
-
-
-    doc.line(
-        x1,
-        y1,
-        x2,
-        y2
-    );
-}
-
-
-/* ============================================================
-   PDF PAGE SPACE
-   ============================================================ */
-
-function pdfEnsureSpace(
-    doc,
-    y,
-    requiredHeight
-) {
-
-    const pageHeight =
-        doc.internal.pageSize.getHeight();
-
-
-    if (
-        y + requiredHeight >
-        pageHeight - 18
-    ) {
-
-        doc.addPage();
-
-        return 20;
-    }
-
-
-    return y;
-}
-
-
-/* ============================================================
-   PDF PAGE NUMBERS
-   ============================================================ */
-
-function addPdfPageNumbers(
-    doc
-) {
-
-    const pageCount =
-        doc.internal.getNumberOfPages();
-
-
-    const pageWidth =
-        doc.internal.pageSize.getWidth();
-
-
-    const pageHeight =
-        doc.internal.pageSize.getHeight();
-
-
-    for (
-        let page = 1;
-        page <= pageCount;
-        page++
-    ) {
-
-        doc.setPage(
-            page
-        );
-
-
-        doc.setFont(
-            "helvetica",
-            "normal"
-        );
-
-
-        doc.setFontSize(
-            7
-        );
-
-
-        doc.text(
-            "AI Video Summarizer",
-            18,
-            pageHeight - 9
-        );
-
-
-        doc.text(
-            `Page ${page} of ${pageCount}`,
-            pageWidth - 18,
-            pageHeight - 9,
-            {
-                align: "right"
-            }
-        );
-    }
-}
-
-
-/* ============================================================
-   PDF FILE NAME
-   ============================================================ */
-
-function createPdfFilename(
-    title,
-    language
-) {
-
-    let cleanTitle =
-        String(
-            title ||
-            "video"
-        )
-            .replace(
-                /[<>:"/\\|?*]+/g,
-                ""
-            )
-            .replace(
-                /\s+/g,
-                " "
-            )
-            .trim();
-
-
-    if (
-        cleanTitle.length >
-        80
-    ) {
-
-        cleanTitle =
-            cleanTitle.substring(
-                0,
-                80
-            );
-    }
-
-
-    if (!cleanTitle) {
-        cleanTitle = "video";
-    }
-
-
-    return (
-        "AI_Video_Analysis_" +
-        cleanTitle +
-        "_" +
-        String(
-            language ||
-            "en"
-        ).toUpperCase() +
-        ".pdf"
-    );
+            <span class="sentiment-badge ${className}">
+                ${escapeHTML(label)}
+            </span>
+        </article>
+    `;
 }
 
 /* ============================================================
-   NUMBERED LIST
+   MAIN ISSUE CARD
    ============================================================ */
 
-function renderNumberedList(
-    items
-) {
+function createIssueCard(value) {
+    if (!value) {
+        return "";
+    }
 
-    if (
-        !items ||
-        items.length === 0
-    ) {
+    return `
+        <article class="analysis-card">
+            <h3>Main Issue</h3>
 
+            <div class="main-issue">
+                ${renderText(value)}
+            </div>
+        </article>
+    `;
+}
+
+/* ============================================================
+   KEY POINTS CARD
+   ============================================================ */
+
+function createKeyPointsCard(value) {
+    if (!value) {
+        return "";
+    }
+
+    const items =
+        normalizeArray(value);
+
+    if (!items.length) {
         return `
-            <p class="empty-analysis">
-                No information available.
-            </p>
+            <article class="analysis-card">
+                <h3>Key Points</h3>
+                ${renderText(value)}
+            </article>
         `;
     }
 
+    return `
+        <article class="analysis-card">
+            <h3>Key Points</h3>
 
-    return items
-        .map(
-            (item, index) => {
-
-                return `
-
-                    <div class="analysis-item">
-
-                        <div class="analysis-number">
-
-                            ${
-                                String(
-                                    index + 1
-                                ).padStart(
-                                    2,
-                                    "0"
-                                )
-                            }
-
-                        </div>
-
-
-                        <div class="analysis-text">
-
-                            ${
-                                formatParagraphs(
-                                    item
-                                )
-                            }
-
-                        </div>
-
-                    </div>
-                `;
-            }
-        )
-        .join("");
+            <ul class="key-points-list">
+                ${items
+                    .map(
+                        item => `
+                            <li>
+                                ${renderText(item)}
+                            </li>
+                        `
+                    )
+                    .join("")}
+            </ul>
+        </article>
+    `;
 }
 
-
 /* ============================================================
-   BULLET LIST
+   MEDIA ANALYSIS CARD
    ============================================================ */
 
-function renderBulletList(
-    items
-) {
+function createMediaAnalysisCard(value) {
+    if (!value) {
+        return "";
+    }
 
     if (
-        !items ||
-        items.length === 0
+        typeof value !== "object" ||
+        Array.isArray(value)
     ) {
-
         return `
-            <p class="empty-analysis">
-                No information available.
-            </p>
+            <article class="analysis-card full-width">
+                <h3>Media Analysis</h3>
+                ${renderText(value)}
+            </article>
         `;
     }
 
+    const labels = [
+        ["Angle Pemberitaan", [
+            "angle",
+            "news_angle",
+            "media_angle"
+        ]],
 
-    return items
-        .map(
-            (item) => {
+        ["Aktor / OPD yang Disorot", [
+            "actors",
+            "actors_opd",
+            "highlighted_actors",
+            "aktor",
+            "opd"
+        ]],
 
-                return `
+        ["Posisi Pemprov Jawa Tengah", [
+            "pemprov_position",
+            "government_position",
+            "position_of_pemprov"
+        ]],
 
-                    <div class="takeaway-item">
+        ["Potensi Pembentukan Opini Publik", [
+            "public_opinion",
+            "public_opinion_potential"
+        ]],
 
-                        <span class="takeaway-marker">
-                            •
-                        </span>
+        ["Key Message", [
+            "key_message",
+            "key_messages",
+            "message"
+        ]]
+    ];
 
-                        <span>
-                            ${
-                                formatParagraphs(
-                                    item
-                                )
-                            }
-                        </span>
+    let content = "";
 
-                    </div>
-                `;
-            }
-        )
-        .join("");
+    for (const [label, keys] of labels) {
+        const field =
+            getField(value, ...keys);
+
+        if (
+            field !== null &&
+            field !== undefined
+        ) {
+            content += `
+                <div class="media-analysis-item">
+                    <strong>${label}</strong>
+                    ${renderText(field)}
+                </div>
+            `;
+        }
+    }
+
+    if (!content) {
+        content = renderObject(value);
+    }
+
+    return `
+        <article class="analysis-card full-width">
+            <h3>Media Analysis</h3>
+
+            <div class="media-analysis">
+                ${content}
+            </div>
+        </article>
+    `;
 }
 
-
 /* ============================================================
-   TRANSCRIPT
+   COMMUNICATION RISK CARD
    ============================================================ */
 
-function renderTranscript(
-    transcriptData
-) {
-
-    const transcriptElement =
-        document.getElementById(
-            "transcript"
-        );
-
-
-    if (!transcriptElement) {
-        return;
+function createRiskCard(value) {
+    if (!value) {
+        return "";
     }
 
+    let level = "";
+    let reason = "";
+    let escalation = "";
 
     if (
-        !transcriptData ||
-        !Array.isArray(
-            transcriptData.transcript
-        ) ||
-        transcriptData.transcript.length === 0
+        typeof value === "object" &&
+        !Array.isArray(value)
     ) {
+        level =
+            getField(
+                value,
+                "level",
+                "risk_level",
+                "risk",
+                "tingkat"
+            );
 
-        transcriptElement.innerHTML = `
-            <p>
-                Transcript is not available.
-            </p>
-        `;
+        reason =
+            getField(
+                value,
+                "reason",
+                "alasan"
+            );
 
-        return;
+        escalation =
+            getField(
+                value,
+                "escalation",
+                "potential_escalation",
+                "potensi_eskalasi"
+            );
+    } else {
+        level = value;
     }
 
+    let levelText =
+        getLanguageData(level);
 
-    const rows =
-        transcriptData.transcript
-            .map(
-                (
-                    segment,
-                    index
-                ) => {
+    if (
+        typeof levelText === "object"
+    ) {
+        levelText =
+            levelText.level ||
+            levelText.value ||
+            levelText.label ||
+            "";
+    }
 
-                    const start =
-                        Number(
-                            segment.start
-                        ) || 0;
+    const normalized =
+        String(levelText)
+            .toLowerCase();
 
+    let riskClass =
+        "risk-low";
 
-                    const text =
-                        normalizeText(
-                            segment.text
-                        );
+    if (
+        normalized.includes("high") ||
+        normalized.includes("tinggi")
+    ) {
+        riskClass = "risk-high";
+    } else if (
+        normalized.includes("medium") ||
+        normalized.includes("moderate") ||
+        normalized.includes("sedang")
+    ) {
+        riskClass = "risk-medium";
+    }
 
+    return `
+        <article class="analysis-card">
+            <h3>Communication Risk</h3>
 
-                    return `
-                        <div
-                            class="transcript-row"
-                            data-index="${index}"
-                        >
-
-                            <div
-                                class="transcript-time"
-                            >
-                                ${
-                                    formatTimestamp(
-                                        start
-                                    )
-                                }
-                            </div>
-
-
-                            <div
-                                class="transcript-text"
-                            >
-                                ${
-                                    escapeHtml(
-                                        text
-                                    )
-                                }
-                            </div>
-
-                        </div>
-                    `;
-                }
-            )
-            .join("");
-
-
-    transcriptElement.innerHTML = `
-
-        <div
-            class="transcript-toolbar"
-        >
-
-            <span>
-                ${
-                    transcriptData
-                        .transcript
-                        .length
-                }
-                segments
+            <span class="risk-badge ${riskClass}">
+                ${escapeHTML(
+                    String(levelText || "-")
+                )}
             </span>
 
-        </div>
+            ${
+                reason
+                    ? `
+                        <div style="margin-top:12px;">
+                            <strong>Reason</strong>
+                            ${renderText(reason)}
+                        </div>
+                    `
+                    : ""
+            }
 
-
-        <div
-            class="transcript-scroll"
-        >
-
-            ${rows}
-
-        </div>
+            ${
+                escalation
+                    ? `
+                        <div style="margin-top:12px;">
+                            <strong>Potential Escalation</strong>
+                            ${renderText(escalation)}
+                        </div>
+                    `
+                    : ""
+            }
+        </article>
     `;
 }
 
-
 /* ============================================================
-   TIMESTAMP
+   RECOMMENDATIONS CARD
    ============================================================ */
 
-function formatTimestamp(
-    seconds
-) {
-
-    seconds =
-        Math.max(
-            0,
-            Math.floor(
-                Number(
-                    seconds
-                ) || 0
-            )
-        );
-
-
-    const hours =
-        Math.floor(
-            seconds / 3600
-        );
-
-
-    const minutes =
-        Math.floor(
-            (seconds % 3600) / 60
-        );
-
-
-    const secs =
-        seconds % 60;
-
-
-    if (hours > 0) {
-
-        return [
-            String(hours).padStart(
-                2,
-                "0"
-            ),
-
-            String(minutes).padStart(
-                2,
-                "0"
-            ),
-
-            String(secs).padStart(
-                2,
-                "0"
-            )
-        ].join(":");
-    }
-
-
-    return [
-        String(minutes).padStart(
-            2,
-            "0"
-        ),
-
-        String(secs).padStart(
-            2,
-            "0"
-        )
-    ].join(":");
-}
-
-
-/* ============================================================
-   NORMALIZE ARRAY
-   ============================================================ */
-
-function normalizeArray(
-    value
-) {
-
+function createRecommendationsCard(value) {
     if (!value) {
-        return [];
+        return "";
     }
-
-
-    if (Array.isArray(value)) {
-
-        return value
-            .map(
-                (item) =>
-                    normalizeText(
-                        item
-                    )
-            )
-            .filter(
-                (item) =>
-                    item.length > 0
-            );
-    }
-
 
     if (
-        typeof value ===
-        "string"
+        typeof value !== "object" ||
+        Array.isArray(value)
     ) {
-
-        return value
-            .split(/\n+/)
-            .map(
-                (item) =>
-                    normalizeText(
-                        item
-                    )
-            )
-            .filter(
-                (item) =>
-                    item.length > 0
-            );
+        return `
+            <article class="analysis-card">
+                <h3>Recommendations</h3>
+                ${renderText(value)}
+            </article>
+        `;
     }
 
+    const mapping = [
+        ["Amplifikasi", [
+            "amplification",
+            "amplifikasi"
+        ]],
 
-    return [
-        normalizeText(
-            value
-        )
-    ].filter(
-        (item) =>
-            item.length > 0
-    );
+        ["Klarifikasi", [
+            "clarification",
+            "klarifikasi"
+        ]],
+
+        ["Counter Narrative", [
+            "counter_narrative",
+            "counterNarrative"
+        ]],
+
+        ["Engagement Media", [
+            "media_engagement",
+            "engagement_media"
+        ]],
+
+        ["Monitoring Lanjutan", [
+            "continued_monitoring",
+            "monitoring_lanjutan",
+            "follow_up_monitoring"
+        ]]
+    ];
+
+    let items = "";
+
+    for (const [label, keys] of mapping) {
+        const valueItem =
+            getField(value, ...keys);
+
+        if (
+            valueItem !== null &&
+            valueItem !== undefined
+        ) {
+            items += `
+                <div class="recommendation-item">
+                    <strong>${label}</strong>
+                    ${renderText(valueItem)}
+                </div>
+            `;
+        }
+    }
+
+    if (!items) {
+        items = `
+            <div class="recommendation-item">
+                ${renderObject(value)}
+            </div>
+        `;
+    }
+
+    return `
+        <article class="analysis-card full-width">
+            <h3>Recommendations</h3>
+
+            <div class="recommendations">
+                ${items}
+            </div>
+        </article>
+    `;
 }
 
-
 /* ============================================================
-   NORMALIZE TEXT
+   GENERIC TEXT CARD
    ============================================================ */
 
-function normalizeText(
-    value
-) {
+function createTextCard(title, value) {
+    if (!value) {
+        return "";
+    }
+
+    return `
+        <article class="analysis-card">
+            <h3>${title}</h3>
+
+            ${renderText(value)}
+        </article>
+    `;
+}
+
+/* ============================================================
+   TAKEAWAYS
+   ============================================================ */
+
+function createTakeawaysCard(value) {
+    if (!value) {
+        return "";
+    }
+
+    return `
+        <article class="analysis-card full-width">
+            <h3>Takeaways</h3>
+
+            <div class="takeaways">
+                ${renderText(value)}
+            </div>
+        </article>
+    `;
+}
+
+/* ============================================================
+   RENDER TEXT
+   ============================================================ */
+
+function renderText(value) {
+    value = getLanguageData(value);
 
     if (
         value === null ||
         value === undefined
     ) {
-
         return "";
     }
 
-
-    if (
-        typeof value ===
-        "string"
-    ) {
-
-        return cleanAIFormatting(
-            value
-        );
-    }
-
-
-    if (
-        typeof value ===
-            "number" ||
-        typeof value ===
-            "boolean"
-    ) {
-
-        return String(
-            value
-        );
-    }
-
-
-    if (
-        typeof value ===
-        "object"
-    ) {
-
-        /*
-         * Handle accidental AI object
-         */
-
-        if (
-            value.issue ||
-            value.reason
-        ) {
-
-            const issue =
-                value.issue
-                    ? String(
-                        value.issue
-                    )
-                    : "";
-
-
-            const reason =
-                value.reason
-                    ? String(
-                        value.reason
-                    )
-                    : "";
-
-
-            return cleanAIFormatting(
-                `${issue} ${reason}`
-            ).trim();
-        }
-
-
-        try {
-
-            return cleanAIFormatting(
-                JSON.stringify(
-                    value
-                )
-            );
-
-        } catch (error) {
-
-            return String(
-                value
-            );
-        }
-    }
-
-
-    return String(
-        value
-    );
-}
-
-
-/* ============================================================
-   CLEAN AI FORMATTING
-   ============================================================ */
-
-function cleanAIFormatting(
-    text
-) {
-
-    return String(
-        text
-    )
-        .replace(
-            /^\s*```(?:json|text|markdown)?\s*/i,
-            ""
-        )
-        .replace(
-            /\s*```\s*$/i,
-            ""
-        )
-        .replace(
-            /^\s*\*\*(\d+)\*\*\s*/gm,
-            "$1. "
-        )
-        .trim();
-}
-
-
-/* ============================================================
-   FORMAT PARAGRAPHS
-   ============================================================ */
-
-function formatParagraphs(
-    text
-) {
-
-    const normalized =
-        normalizeText(
-            text
-        );
-
-
-    if (!normalized) {
-
+    if (Array.isArray(value)) {
         return `
-            <p class="empty-analysis">
-                No information available.
-            </p>
+            <ul>
+                ${value
+                    .map(
+                        item => `
+                            <li>
+                                ${renderText(item)}
+                            </li>
+                        `
+                    )
+                    .join("")}
+            </ul>
         `;
     }
 
+    if (typeof value === "object") {
+        return renderObject(value);
+    }
 
-    return normalized
-        .split(/\n{2,}/)
-        .map(
-            (paragraph) => {
+    const text =
+        String(value);
 
-                return `
-                    <p>
-                        ${
-                            escapeHtml(
-                                paragraph.trim()
-                            )
-                        }
-                    </p>
-                `;
-            }
-        )
-        .join("");
+    if (
+        text.startsWith("Inference:")
+    ) {
+        return `
+            <div class="inference">
+                <span class="inference-label">
+                    Inference:
+                </span>
+                ${escapeHTML(
+                    text
+                        .replace(
+                            /^Inference:\s*/i,
+                            ""
+                        )
+                )}
+            </div>
+        `;
+    }
+
+    return escapeHTML(text)
+        .replace(/\n/g, "<br>");
 }
 
+/* ============================================================
+   RENDER OBJECT
+   ============================================================ */
+
+function renderObject(object) {
+    if (
+        !object ||
+        typeof object !== "object"
+    ) {
+        return renderText(object);
+    }
+
+    let html = "";
+
+    for (const [key, value] of Object.entries(object)) {
+        const label =
+            formatLabel(key);
+
+        html += `
+            <div class="media-analysis-item">
+                <strong>${escapeHTML(label)}</strong>
+                ${renderText(value)}
+            </div>
+        `;
+    }
+
+    return html;
+}
+
+/* ============================================================
+   FORMAT LABEL
+   ============================================================ */
+
+function formatLabel(value) {
+    return String(value)
+        .replace(/_/g, " ")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/\b\w/g, char =>
+            char.toUpperCase()
+        );
+}
+
+/* ============================================================
+   NORMALIZE ARRAY
+   ============================================================ */
+
+function normalizeArray(value) {
+    if (Array.isArray(value)) {
+        return value;
+    }
+
+    if (
+        typeof value === "object" &&
+        value !== null
+    ) {
+        const possible =
+            value.items ||
+            value.points ||
+            value.list ||
+            value.values;
+
+        if (Array.isArray(possible)) {
+            return possible;
+        }
+    }
+
+    if (typeof value === "string") {
+        return value
+            .split(/\n+/)
+            .map(item =>
+                item
+                    .replace(
+                        /^\s*[-•*]\s*/,
+                        ""
+                    )
+                    .trim()
+            )
+            .filter(Boolean);
+    }
+
+    return [value];
+}
+
+/* ============================================================
+   TRANSCRIPT
+   ============================================================ */
+
+function renderTranscript(data) {
+    const transcriptData =
+        data.transcript ||
+        {};
+
+    let segments =
+        transcriptData.transcript ||
+        transcriptData.segments ||
+        data.transcript_segments ||
+        data.segments ||
+        [];
+
+    if (
+        typeof segments === "string"
+    ) {
+        transcriptBox.innerHTML = `
+            <div class="transcript-row">
+                <div class="transcript-text">
+                    ${escapeHTML(segments)}
+                </div>
+            </div>
+        `;
+
+        return;
+    }
+
+    if (
+        !Array.isArray(segments) ||
+        segments.length === 0
+    ) {
+        transcriptBox.innerHTML = `
+            <p>Transcript unavailable.</p>
+        `;
+
+        return;
+    }
+
+    transcriptBox.innerHTML =
+        segments
+            .map((segment, index) => {
+                const text =
+                    typeof segment === "string"
+                        ? segment
+                        : segment.text ||
+                          segment.transcript ||
+                          "";
+
+                const start =
+                    typeof segment === "object"
+                        ? segment.start
+                        : null;
+
+                return `
+                    <div class="transcript-row">
+
+                        <div class="transcript-time">
+                            ${formatTimestamp(
+                                start,
+                                index
+                            )}
+                        </div>
+
+                        <div class="transcript-text">
+                            ${escapeHTML(text)}
+                        </div>
+
+                    </div>
+                `;
+            })
+            .join("");
+}
+
+/* ============================================================
+   TIMESTAMP
+   ============================================================ */
+
+function formatTimestamp(seconds, fallbackIndex) {
+    if (
+        seconds === null ||
+        seconds === undefined ||
+        Number.isNaN(Number(seconds))
+    ) {
+        return formatSeconds(
+            fallbackIndex * 2
+        );
+    }
+
+    return formatSeconds(
+        Number(seconds)
+    );
+}
+
+function formatSeconds(totalSeconds) {
+    totalSeconds =
+        Math.max(
+            0,
+            Math.floor(
+                Number(totalSeconds) || 0
+            )
+        );
+
+    const hours =
+        Math.floor(
+            totalSeconds / 3600
+        );
+
+    const minutes =
+        Math.floor(
+            (totalSeconds % 3600) / 60
+        );
+
+    const seconds =
+        totalSeconds % 60;
+
+    if (hours > 0) {
+        return [
+            String(hours).padStart(2, "0"),
+            String(minutes).padStart(2, "0"),
+            String(seconds).padStart(2, "0")
+        ].join(":");
+    }
+
+    return [
+        String(minutes).padStart(2, "0"),
+        String(seconds).padStart(2, "0")
+    ].join(":");
+}
+
+/* ============================================================
+   YOUTUBE ID
+   ============================================================ */
+
+function extractYouTubeId(url) {
+    if (!url) {
+        return "";
+    }
+
+    try {
+        const parsed =
+            new URL(url);
+
+        const host =
+            parsed.hostname
+                .toLowerCase();
+
+        if (
+            host.includes("youtu.be")
+        ) {
+            return parsed.pathname
+                .replace("/", "")
+                .trim();
+        }
+
+        if (
+            host.includes("youtube.com")
+        ) {
+            return (
+                parsed.searchParams
+                    .get("v") || ""
+            );
+        }
+
+        return "";
+    } catch {
+        return "";
+    }
+}
 
 /* ============================================================
    ESCAPE HTML
    ============================================================ */
 
-function escapeHtml(
-    value
-) {
-
-    return String(
-        value
-    )
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-        .replace(
-            /</g,
-            "&lt;"
-        )
-        .replace(
-            />/g,
-            "&gt;"
-        )
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-}
-
-
-/* ============================================================
-   VALIDATE YOUTUBE URL
-   ============================================================ */
-
-function isYouTubeUrl(
-    url
-) {
-
-    try {
-
-        const parsed =
-            new URL(
-                url
-            );
-
-
-        const hostname =
-            parsed.hostname.toLowerCase();
-
-
-        return (
-            hostname ===
-                "youtube.com" ||
-
-            hostname ===
-                "www.youtube.com" ||
-
-            hostname ===
-                "m.youtube.com" ||
-
-            hostname ===
-                "youtu.be" ||
-
-            hostname ===
-                "www.youtu.be"
-        );
-
-    } catch (error) {
-
-        return false;
-    }
-}
-
-
-/* ============================================================
-   STATUS
-   ============================================================ */
-
-function showStatus(
-    message,
-    type
-) {
-
-    const status =
-        document.getElementById(
-            "status"
-        );
-
-
-    if (!status) {
-        return;
-    }
-
-
-    status.className =
-        `status-${type}`;
-
-
-    status.textContent =
-        message;
-}
-
-
-/* ============================================================
-   LOADING STATE
-   ============================================================ */
-
-function setLoadingState(
-    loading
-) {
-
-    const button =
-        document.getElementById(
-            "analyzeButton"
-        );
-
-
-    if (!button) {
-        return;
-    }
-
-
-    button.disabled =
-        loading;
-
-
-    if (loading) {
-
-        button.dataset.originalText =
-            button.textContent;
-
-
-        button.textContent =
-            "ANALYZING...";
-
-    } else {
-
-        button.textContent =
-            button.dataset.originalText ||
-            "ANALYZE";
-    }
-}
-
-
-/* ============================================================
-   CLEAR RESULTS
-   ============================================================ */
-
-function clearPreviousResults() {
-
-    const videoInfo =
-        document.getElementById(
-            "videoInfo"
-        );
-
-
-    const transcript =
-        document.getElementById(
-            "transcript"
-        );
-
-
-    const analysis =
-        document.getElementById(
-            "professionalAnalysis"
-        );
-
-
-    if (videoInfo) {
-
-        videoInfo.innerHTML = `
-            <p>
-                Analyzing video information...
-            </p>
-        `;
-    }
-
-
-    if (transcript) {
-
-        transcript.innerHTML = `
-            <p>
-                Processing transcript...
-            </p>
-        `;
-    }
-
-
-    if (analysis) {
-
-        analysis.remove();
-    }
-
-
-    currentAIData =
-        null;
-
-    currentVideoData =
-        null;
-
-    currentTranscriptData =
-        null;
-}
-
-
-/* ============================================================
-   ERROR RESULT
-   ============================================================ */
-
-function renderErrorResult(
-    message
-) {
-
-    const videoInfo =
-        document.getElementById(
-            "videoInfo"
-        );
-
-
-    if (!videoInfo) {
-        return;
-    }
-
-
-    videoInfo.innerHTML = `
-
-        <div class="error-result">
-
-            <strong>
-                Analysis failed
-            </strong>
-
-
-            <p>
-                ${
-                    escapeHtml(
-                        message
-                    )
-                }
-            </p>
-
-        </div>
-    `;
-}
-
-
-/* ============================================================
-   MISSING ANALYSIS
-   ============================================================ */
-
-function renderMissingAnalysis() {
-
-    const transcriptCard =
-        document.querySelector(
-            ".transcript-card"
-        );
-
-
-    if (!transcriptCard) {
-        return;
-    }
-
-
-    let container =
-        document.getElementById(
-            "professionalAnalysis"
-        );
-
-
-    if (!container) {
-
-        container =
-            document.createElement(
-                "div"
-            );
-
-
-        container.id =
-            "professionalAnalysis";
-
-
-        container.className =
-            "professional-analysis";
-
-
-        transcriptCard.parentNode.insertBefore(
-            container,
-            transcriptCard
-        );
-    }
-
-
-    container.innerHTML = `
-
-        <section
-            class="analysis-section"
-        >
-
-            <h2>
-                PROFESSIONAL CONTENT ANALYSIS
-            </h2>
-
-
-            <p>
-                Analysis is not available
-                in the selected language.
-            </p>
-
-        </section>
-    `;
-}
-
-
-/* ============================================================
-   RESPONSE DEBUG
-   ============================================================ */
-
-function getResponseKeys(
-    data
-) {
-
+function escapeHTML(value) {
     if (
-        !data ||
-        typeof data !== "object"
+        value === null ||
+        value === undefined
     ) {
-
-        return [
-            typeof data
-        ];
+        return "";
     }
 
-
-    return Object.keys(
-        data
-    );
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
-
 /* ============================================================
-   PDF
+   EXPORT PDF
    ============================================================ */
 
-async function generatePdf() {
-
-    if (
-        !currentAIData ||
-        !currentVideoData
-    ) {
-
+async function exportPDF() {
+    if (!currentData) {
         showStatus(
-            "No analysis available for PDF export.",
+            "No analysis available to export.",
             "error"
         );
 
         return;
     }
 
-
-    const button =
-        document.getElementById(
-            "downloadPdfButton"
+    if (
+        typeof window.jspdf ===
+        "undefined"
+    ) {
+        showStatus(
+            "PDF library is not available.",
+            "error"
         );
 
-
-    if (button) {
-
-        button.disabled = true;
-
-        button.textContent =
-            "GENERATING PDF...";
+        return;
     }
 
-
     try {
+        const {
+            jsPDF
+        } = window.jspdf;
 
-        /*
-         * Load jsPDF
-         */
-
-        await loadJsPDF();
-
-
-        if (
-            !window.jspdf ||
-            !window.jspdf.jsPDF
-        ) {
-
-            throw new Error(
-                "PDF library failed to load."
-            );
-        }
-
-
-        const jsPDF =
-            window.jspdf.jsPDF;
-
-
-        const doc =
+        const pdf =
             new jsPDF({
                 orientation: "portrait",
                 unit: "mm",
                 format: "a4"
             });
 
+        const ai =
+            extractAIData(
+                currentData
+            );
 
-        const report =
-            currentAIData[
-                currentLanguage
-            ] || {};
-
-
-        const transcriptData =
-            currentTranscriptData;
-
+        const transcript =
+            currentData.transcript ||
+            {};
 
         const title =
-            transcriptData?.title ||
-            currentVideoData?.title ||
-            "AI Video Analysis";
+            transcript.title ||
+            "AI Media Monitoring Analysis";
 
+        let y = 18;
 
-        const margin = 18;
+        /* Header */
 
-        const pageWidth =
-            doc.internal.pageSize.getWidth();
+        pdf.setFontSize(17);
+        pdf.setFont("helvetica", "bold");
 
-        const pageHeight =
-            doc.internal.pageSize.getHeight();
-
-        const contentWidth =
-            pageWidth -
-            margin * 2;
-
-
-        let y = margin;
-
-
-        /*
-         * =====================================================
-         * TITLE
-         * =====================================================
-         */
-
-        doc.setFont(
-            "helvetica",
-            "bold"
-        );
-
-        doc.setFontSize(20);
-
-
-        y = pdfWriteWrapped(
-            doc,
-            "AI VIDEO ANALYSIS REPORT",
-            margin,
-            y,
-            contentWidth,
-            8
-        );
-
-
-        y += 3;
-
-
-        doc.setFont(
-            "helvetica",
-            "normal"
-        );
-
-        doc.setFontSize(11);
-
-
-        y = pdfWriteWrapped(
-            doc,
-            title,
-            margin,
-            y,
-            contentWidth,
-            5
-        );
-
-
-        y += 5;
-
-
-        pdfLine(
-            doc,
-            margin,
-            y,
-            pageWidth - margin,
+        pdf.text(
+            "AI Media Monitoring & Analysis",
+            15,
             y
         );
 
+        y += 9;
+
+        pdf.setFontSize(11);
+        pdf.setFont("helvetica", "normal");
+
+        pdf.text(
+            truncatePDFText(
+                title,
+                95
+            ),
+            15,
+            y
+        );
 
         y += 8;
 
-
-        /*
-         * =====================================================
-         * VIDEO INFORMATION
-         * =====================================================
-         */
-
-        y =
-            pdfSectionTitle(
-                doc,
-                "VIDEO INFORMATION",
-                margin,
-                y
-            );
-
-
-        const videoLanguage =
-            transcriptData?.language ||
-            currentVideoData?.language ||
-            "Unknown";
-
-
-        const processing =
-            currentVideoData?.processing ||
-            {};
-
-
-        y =
-            pdfInfoRow(
-                doc,
-                "Title",
-                title,
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y =
-            pdfInfoRow(
-                doc,
-                "Language",
-                String(
-                    videoLanguage
-                ).toUpperCase(),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y =
-            pdfInfoRow(
-                doc,
-                "Report Language",
-                currentLanguage === "id"
-                    ? "Bahasa Indonesia"
-                    : "English",
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y =
-            pdfInfoRow(
-                doc,
-                "Transcript Segments",
-                String(
-                    processing.total_segments ??
-                    transcriptData?.transcript?.length ??
-                    0
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y =
-            pdfInfoRow(
-                doc,
-                "Analysis Chunks",
-                String(
-                    processing.total_chunks ??
-                    "-"
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y =
-            pdfInfoRow(
-                doc,
-                "Transcript Characters",
-                String(
-                    processing.transcript_characters ??
-                    "-"
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y += 6;
-
-
-        /*
-         * =====================================================
-         * EXECUTIVE SUMMARY
-         * =====================================================
-         */
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                30
-            );
-
-
-        y =
-            pdfSectionTitle(
-                doc,
-                "EXECUTIVE SUMMARY",
-                margin,
-                y
-            );
-
-
-        y += 2;
-
-
-        y =
-            pdfParagraph(
-                doc,
-                normalizeText(
-                    report.summary
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y += 6;
-
-
-        /*
-         * =====================================================
-         * KEY POINTS
-         * =====================================================
-         */
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                30
-            );
-
-
-        y =
-            pdfSectionTitle(
-                doc,
-                "KEY POINTS",
-                margin,
-                y
-            );
-
-
-        y += 2;
-
-
-        y =
-            pdfNumberedSection(
-                doc,
-                normalizeArray(
-                    report.key_points
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y += 4;
-
-
-        /*
-         * =====================================================
-         * CRITICAL ANALYSIS
-         * =====================================================
-         */
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                30
-            );
-
-
-        y =
-            pdfSectionTitle(
-                doc,
-                "CRITICAL ANALYSIS",
-                margin,
-                y
-            );
-
-
-        y += 2;
-
-
-        y =
-            pdfNumberedSection(
-                doc,
-                normalizeArray(
-                    report.critical_analysis
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y += 4;
-
-
-        /*
-         * =====================================================
-         * IMPLICATIONS
-         * =====================================================
-         */
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                30
-            );
-
-
-        y =
-            pdfSectionTitle(
-                doc,
-                "IMPLICATIONS",
-                margin,
-                y
-            );
-
-
-        y += 2;
-
-
-        y =
-            pdfNumberedSection(
-                doc,
-                normalizeArray(
-                    report.implications
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        y += 4;
-
-
-        /*
-         * =====================================================
-         * KEY TAKEAWAYS
-         * =====================================================
-         */
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                30
-            );
-
-
-        y =
-            pdfSectionTitle(
-                doc,
-                "KEY TAKEAWAYS",
-                margin,
-                y
-            );
-
-
-        y += 2;
-
-
-        y =
-            pdfBulletSection(
-                doc,
-                normalizeArray(
-                    report.takeaways
-                ),
-                margin,
-                y,
-                contentWidth
-            );
-
-
-        /*
-         * =====================================================
-         * TRANSCRIPT
-         * =====================================================
-         */
-
-        y =
-            pdfEnsureSpace(
-                doc,
-                y,
-                35
-            );
-
-
-        y =
-            pdfSectionTitle(
-                doc,
-                "SOURCE MATERIAL / TRANSCRIPT",
-                margin,
-                y
-            );
-
-
-        y += 4;
-
-
-        const transcript =
-            transcriptData?.transcript;
-
-
-        if (
-            Array.isArray(
-                transcript
-            ) &&
-            transcript.length > 0
-        ) {
-
-            for (
-                let i = 0;
-                i < transcript.length;
-                i++
+        pdf.setDrawColor(210, 214, 220);
+
+        pdf.line(
+            15,
+            y,
+            195,
+            y
+        );
+
+        y += 8;
+
+        const sections = [
+            [
+                "Summary",
+                getField(
+                    ai,
+                    "summary",
+                    "executive_summary"
+                )
+            ],
+
+            [
+                "Sentiment",
+                getField(
+                    ai,
+                    "sentiment"
+                )
+            ],
+
+            [
+                "Main Issue",
+                getField(
+                    ai,
+                    "main_issue",
+                    "mainIssue",
+                    "isu_utama"
+                )
+            ],
+
+            [
+                "Key Points",
+                getField(
+                    ai,
+                    "key_points",
+                    "keyPoints"
+                )
+            ],
+
+            [
+                "Media Analysis",
+                getField(
+                    ai,
+                    "media_analysis",
+                    "mediaAnalysis",
+                    "analisis_media"
+                )
+            ],
+
+            [
+                "Communication Risk",
+                getField(
+                    ai,
+                    "communication_risk",
+                    "communicationRisk",
+                    "risiko_komunikasi"
+                )
+            ],
+
+            [
+                "Recommendations",
+                getField(
+                    ai,
+                    "recommendations",
+                    "recommendation",
+                    "rekomendasi"
+                )
+            ],
+
+            [
+                "Critical Analysis",
+                getField(
+                    ai,
+                    "critical_analysis",
+                    "criticalAnalysis"
+                )
+            ],
+
+            [
+                "Implications",
+                getField(
+                    ai,
+                    "implications",
+                    "implication"
+                )
+            ],
+
+            [
+                "Takeaways",
+                getField(
+                    ai,
+                    "takeaways",
+                    "key_takeaways"
+                )
+            ]
+        ];
+
+        for (const [
+            sectionTitle,
+            value
+        ] of sections) {
+            if (
+                value === null ||
+                value === undefined ||
+                value === ""
             ) {
-
-                const segment =
-                    transcript[i];
-
-
-                const timestamp =
-                    formatTimestamp(
-                        segment.start
-                    );
-
-
-                const text =
-                    normalizeText(
-                        segment.text
-                    );
-
-
-                /*
-                 * Estimate required height
-                 */
-
-                doc.setFont(
-                    "helvetica",
-                    "normal"
-                );
-
-                doc.setFontSize(8);
-
-
-                const lines =
-                    doc.splitTextToSize(
-                        text,
-                        contentWidth - 25
-                    );
-
-
-                const requiredHeight =
-                    Math.max(
-                        7,
-                        lines.length * 3.8
-                    ) + 4;
-
-
-                y =
-                    pdfEnsureSpace(
-                        doc,
-                        y,
-                        requiredHeight
-                    );
-
-
-                /*
-                 * Timestamp
-                 */
-
-                doc.setFont(
-                    "helvetica",
-                    "bold"
-                );
-
-                doc.setFontSize(8);
-
-
-                doc.text(
-                    timestamp,
-                    margin,
-                    y
-                );
-
-
-                /*
-                 * Transcript text
-                 */
-
-                doc.setFont(
-                    "helvetica",
-                    "normal"
-                );
-
-
-                doc.text(
-                    lines,
-                    margin + 25,
-                    y
-                );
-
-
-                y +=
-                    lines.length * 3.8 +
-                    4;
-
-
-                /*
-                 * Light separator
-                 */
-
-                if (
-                    y <
-                    pageHeight - 20
-                ) {
-
-                    pdfLine(
-                        doc,
-                        margin,
-                        y,
-                        pageWidth - margin,
-                        y
-                    );
-
-                    y += 2;
-                }
+                continue;
             }
 
-        } else {
-
             y =
-                pdfParagraph(
-                    doc,
-                    "Transcript is not available.",
-                    margin,
-                    y,
-                    contentWidth
+                addPDFSection(
+                    pdf,
+                    sectionTitle,
+                    value,
+                    y
                 );
+
+            if (y > 270) {
+                pdf.addPage();
+                y = 18;
+            }
         }
 
+        /* Footer */
 
-        /*
-         * =====================================================
-         * FOOTER / PAGE NUMBERS
-         * =====================================================
-         */
+        const pageCount =
+            pdf.internal
+                .getNumberOfPages();
 
-        addPdfPageNumbers(
-            doc
-        );
+        for (
+            let page = 1;
+            page <= pageCount;
+            page++
+        ) {
+            pdf.setPage(page);
 
-
-        /*
-         * =====================================================
-         * FILE NAME
-         * =====================================================
-         */
-
-        const filename =
-            createPdfFilename(
-                title,
-                currentLanguage
+            pdf.setFontSize(8);
+            pdf.setFont(
+                "helvetica",
+                "normal"
             );
 
+            pdf.setTextColor(
+                120,
+                120,
+                120
+            );
 
-        doc.save(
-            filename
+            pdf.text(
+                `AI Media Monitoring & Analysis — Page ${page} of ${pageCount}`,
+                15,
+                287
+            );
+        }
+
+        const safeName =
+            sanitizeFileName(
+                title
+            );
+
+        pdf.save(
+            `${safeName}_AI_Analysis.pdf`
         );
-
 
         showStatus(
-            "PDF downloaded successfully.",
+            "PDF exported successfully.",
             "success"
         );
-
-
     } catch (error) {
-
         console.error(
-            "PDF ERROR:",
+            "PDF export error:",
             error
         );
 
-
         showStatus(
-            error.message ||
-            "Failed to generate PDF.",
+            "Failed to export PDF.",
             "error"
         );
-
-
-    } finally {
-
-        if (button) {
-
-            button.disabled =
-                false;
-
-            button.textContent =
-                "DOWNLOAD PDF";
-        }
     }
 }
 
-
 /* ============================================================
-   CONSOLE
+   ADD PDF SECTION
    ============================================================ */
 
-console.log(
-    "AI Video Summarizer V7.3 loaded."
+function addPDFSection(
+    pdf,
+    title,
+    value,
+    y
+) {
+    pdf.setTextColor(
+        23,
+        32,
+        51
+    );
+
+    pdf.setFontSize(12);
+    pdf.setFont(
+        "helvetica",
+        "bold"
+    );
+
+    pdf.text(
+        title,
+        15,
+        y
+    );
+
+    y += 6;
+
+    pdf.setFontSize(9);
+    pdf.setFont(
+        "helvetica",
+        "normal"
+    );
+
+    const text =
+        plainTextFromValue(
+            getLanguageData(value)
+        );
+
+    const lines =
+        pdf.splitTextToSize(
+            text,
+            178
+        );
+
+    for (const line of lines) {
+        if (y > 278) {
+            pdf.addPage();
+            y = 18;
+
+            pdf.setFontSize(9);
+            pdf.setFont(
+                "helvetica",
+                "normal"
+            );
+        }
+
+        pdf.text(
+            line,
+            15,
+            y
+        );
+
+        y += 4.5;
+    }
+
+    return y + 5;
+}
+
+/* ============================================================
+   PLAIN TEXT FROM VALUE
+   ============================================================ */
+
+function plainTextFromValue(value) {
+    if (
+        value === null ||
+        value === undefined
+    ) {
+        return "";
+    }
+
+    if (Array.isArray(value)) {
+        return value
+            .map(
+                item =>
+                    "• " +
+                    plainTextFromValue(
+                        item
+                    )
+            )
+            .join("\n");
+    }
+
+    if (
+        typeof value === "object"
+    ) {
+        return Object.entries(value)
+            .map(
+                ([key, item]) =>
+                    `${formatLabel(key)}: ${plainTextFromValue(item)}`
+            )
+            .join("\n");
+    }
+
+    return String(value);
+}
+
+/* ============================================================
+   TRUNCATE PDF TEXT
+   ============================================================ */
+
+function truncatePDFText(
+    text,
+    maxLength
+) {
+    text = String(text || "");
+
+    if (
+        text.length <= maxLength
+    ) {
+        return text;
+    }
+
+    return (
+        text.substring(
+            0,
+            maxLength - 3
+        ) + "..."
+    );
+}
+
+/* ============================================================
+   SANITIZE FILE NAME
+   ============================================================ */
+
+function sanitizeFileName(name) {
+    return String(name || "video")
+        .replace(/[<>:"/\\|?*]+/g, "")
+        .replace(/\s+/g, "_")
+        .substring(0, 100);
+}
+
+/* ============================================================
+   OPTIONAL KEYBOARD SHORTCUT
+   ============================================================ */
+
+document.addEventListener(
+    "keydown",
+    event => {
+        if (
+            event.ctrlKey &&
+            event.key === "Enter"
+        ) {
+            analyzeVideo();
+        }
+    }
 );
 
-console.log(
-    "API:",
-    API_URL
-);
+/* ============================================================
+   END
+   ============================================================ */
