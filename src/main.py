@@ -1,32 +1,53 @@
-import json
-import hashlib
-import re
-from typing import Any
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Request
+)
 
-import httpx2 as httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import (
+    CORSMiddleware
+)
+
+from fastapi.responses import (
+    JSONResponse
+)
 
 from workers import asgi, env
 
+import httpx2 as httpx
+
+import json
+import re
+import hashlib
+
 
 # ============================================================
-# CONFIGURATION
+# APP
 # ============================================================
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="2.0.0"
+    description="AI Video Summarizer Backend",
+    version="3.0.0"
 )
+
+
+# ============================================================
+# CORS
+# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
+
+# ============================================================
+# CONSTANTS
+# ============================================================
 
 TRANSCRIPT_API_URL = (
     "https://api.freetranscriptapi.com/v1/transcript"
@@ -36,67 +57,174 @@ YOUTUBE_OEMBED_URL = (
     "https://www.youtube.com/oembed"
 )
 
-# Transcript normal akan dianalisis dengan 1 AI call.
-# Transcript sangat panjang akan otomatis memakai chunking.
-MAX_SINGLE_PASS_CHARS = 60000
+# Current active Cloudflare model.
+AI_MODEL = (
+    "@cf/meta/llama-3.1-8b-instruct-fast"
+)
 
-# Untuk transcript panjang.
+# ------------------------------------------------------------
+# Normal video:
+# one AI call
+# ------------------------------------------------------------
+
+MAX_SINGLE_PASS_CHARS = 100000
+
+# ------------------------------------------------------------
+# Very long video:
+# fallback chunking
+# ------------------------------------------------------------
+
 CHUNK_SIZE = 18000
 
 
 # ============================================================
-# UTILITY
+# ROOT
 # ============================================================
 
-def clean_text(value: Any) -> str:
+@app.get("/")
+async def root():
+
+    return {
+        "status": "ok",
+        "message": (
+            "AI Video Summarizer API "
+            "V3 is running on Cloudflare"
+        ),
+        "version": "3.0.0"
+    }
+
+
+# ============================================================
+# HEALTH
+# ============================================================
+
+@app.get("/health")
+async def health():
+
+    return {
+        "status": "healthy",
+        "version": "3.0.0",
+        "model": AI_MODEL
+    }
+
+
+# ============================================================
+# ERROR HANDLER
+# ============================================================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(
+    request: Request,
+    exc: HTTPException
+):
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "status": "error",
+            "message": str(exc.detail),
+            "error_type": "HTTPException",
+            "error": str(exc.detail),
+            "http_status": exc.status_code
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(
+    request: Request,
+    exc: Exception
+):
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "message": "Worker exception",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "http_status": 500
+        }
+    )
+
+
+# ============================================================
+# TEXT UTILITY
+# ============================================================
+
+def clean_text(value):
+
     if value is None:
         return ""
 
     return str(value).strip()
 
 
-def extract_video_id(url: str) -> str | None:
-    """
-    Extract YouTube video ID from several common URL formats.
-    """
+# ============================================================
+# YOUTUBE VIDEO ID
+# ============================================================
+
+def extract_video_id(url):
 
     url = clean_text(url)
 
     patterns = [
-        r"(?:youtube\.com/watch\?v=)([A-Za-z0-9_-]{11})",
-        r"(?:youtu\.be/)([A-Za-z0-9_-]{11})",
-        r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})",
-        r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})",
+
+        r"(?:youtube\.com/watch\?v=)"
+        r"([A-Za-z0-9_-]{11})",
+
+        r"(?:youtu\.be/)"
+        r"([A-Za-z0-9_-]{11})",
+
+        r"(?:youtube\.com/embed/)"
+        r"([A-Za-z0-9_-]{11})",
+
+        r"(?:youtube\.com/shorts/)"
+        r"([A-Za-z0-9_-]{11})"
+
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, url)
+
+        match = re.search(
+            pattern,
+            url
+        )
 
         if match:
+
             return match.group(1)
 
     return None
 
 
-def normalize_youtube_url(url: str) -> str:
-    """
-    Normalize YouTube URL so query parameters such as
-    ?t=3 do not create a different video reference.
-    """
+# ============================================================
+# NORMALIZE YOUTUBE URL
+# ============================================================
 
-    video_id = extract_video_id(url)
+def normalize_youtube_url(url):
+
+    video_id = extract_video_id(
+        url
+    )
 
     if video_id:
-        return f"https://www.youtube.com/watch?v={video_id}"
 
-    return url.strip()
+        return (
+            "https://www.youtube.com/watch?v="
+            + video_id
+        )
+
+    return clean_text(url)
 
 
-def transcript_hash(transcript: list[dict]) -> str:
-    """
-    Create deterministic hash from transcript.
-    Useful later for persistent cache.
-    """
+# ============================================================
+# TRANSCRIPT HASH
+# ============================================================
+
+def create_transcript_hash(
+    transcript
+):
 
     raw = json.dumps(
         transcript,
@@ -109,25 +237,35 @@ def transcript_hash(transcript: list[dict]) -> str:
     ).hexdigest()
 
 
-def parse_json_response(text: str) -> dict:
-    """
-    Safely parse JSON returned by AI.
+# ============================================================
+# SAFE JSON PARSER
+# ============================================================
 
-    Handles cases where the model accidentally returns
-    markdown code fences.
-    """
+def parse_ai_json(text):
 
     text = clean_text(text)
 
     if not text:
-        raise ValueError("AI returned empty response")
 
-    # Remove markdown fences.
+        raise ValueError(
+            "AI returned empty response"
+        )
+
+    # --------------------------------------------------------
+    # Remove markdown code fence
+    # --------------------------------------------------------
+
     text = re.sub(
-        r"^```(?:json)?\s*",
+        r"^```json\s*",
         "",
         text,
         flags=re.IGNORECASE
+    )
+
+    text = re.sub(
+        r"^```\s*",
+        "",
+        text
     )
 
     text = re.sub(
@@ -138,27 +276,51 @@ def parse_json_response(text: str) -> dict:
 
     text = text.strip()
 
-    # Direct JSON.
+    # --------------------------------------------------------
+    # Direct JSON
+    # --------------------------------------------------------
+
     try:
+
         result = json.loads(text)
 
-        if isinstance(result, dict):
+        if isinstance(
+            result,
+            dict
+        ):
+
             return result
 
     except Exception:
         pass
 
-    # Try extracting the first JSON object.
+    # --------------------------------------------------------
+    # Extract JSON object
+    # --------------------------------------------------------
+
     start = text.find("{")
     end = text.rfind("}")
 
-    if start >= 0 and end > start:
-        candidate = text[start:end + 1]
+    if (
+        start >= 0
+        and end > start
+    ):
+
+        candidate = (
+            text[start:end + 1]
+        )
 
         try:
-            result = json.loads(candidate)
 
-            if isinstance(result, dict):
+            result = json.loads(
+                candidate
+            )
+
+            if isinstance(
+                result,
+                dict
+            ):
+
                 return result
 
         except Exception:
@@ -170,575 +332,25 @@ def parse_json_response(text: str) -> dict:
 
 
 # ============================================================
-# TRANSCRIPT
-# ============================================================
-
-def normalize_transcript(data: Any) -> list[dict]:
-    """
-    Normalize FreeTranscriptAPI transcript format.
-
-    Output:
-    [
-        {
-            "start": 0.0,
-            "duration": 2.1,
-            "text": "..."
-        }
-    ]
-    """
-
-    if isinstance(data, dict):
-        raw_transcript = data.get("transcript", [])
-
-    elif isinstance(data, list):
-        raw_transcript = data
-
-    else:
-        raw_transcript = []
-
-    result = []
-
-    for item in raw_transcript:
-
-        if not isinstance(item, dict):
-            continue
-
-        text = clean_text(
-            item.get("text", "")
-        )
-
-        if not text:
-            continue
-
-        try:
-            start = float(
-                item.get("start", 0)
-            )
-        except Exception:
-            start = 0.0
-
-        try:
-            duration = float(
-                item.get("duration", 0)
-            )
-        except Exception:
-            duration = 0.0
-
-        result.append(
-            {
-                "start": start,
-                "duration": duration,
-                "text": text
-            }
-        )
-
-    return result
-
-
-def transcript_to_text(
-    transcript: list[dict]
-) -> str:
-
-    lines = []
-
-    for item in transcript:
-
-        start = item.get("start", 0)
-
-        text = clean_text(
-            item.get("text", "")
-        )
-
-        if not text:
-            continue
-
-        lines.append(
-            f"[{start:.2f}s] {text}"
-        )
-
-    return "\n".join(lines)
-
-
-def chunk_transcript(
-    transcript: list[dict],
-    max_chars: int = CHUNK_SIZE
-) -> list[str]:
-
-    chunks = []
-
-    current_lines = []
-    current_length = 0
-
-    for item in transcript:
-
-        start = item.get("start", 0)
-
-        text = clean_text(
-            item.get("text", "")
-        )
-
-        if not text:
-            continue
-
-        line = f"[{start:.2f}s] {text}"
-
-        line_length = len(line)
-
-        if (
-            current_lines
-            and current_length + line_length > max_chars
-        ):
-            chunks.append(
-                "\n".join(current_lines)
-            )
-
-            current_lines = []
-            current_length = 0
-
-        current_lines.append(line)
-        current_length += line_length
-
-    if current_lines:
-        chunks.append(
-            "\n".join(current_lines)
-        )
-
-    return chunks
-
-
-# ============================================================
-# YOUTUBE METADATA
-# ============================================================
-
-async def get_youtube_metadata(
-    url: str
-) -> dict:
-
-    normalized_url = normalize_youtube_url(url)
-
-    params = {
-        "url": normalized_url,
-        "format": "json"
-    }
-
-    try:
-
-        async with httpx.AsyncClient(
-            timeout=20
-        ) as client:
-
-            response = await client.get(
-                YOUTUBE_OEMBED_URL,
-                params=params
-            )
-
-            response.raise_for_status()
-
-            data = response.json()
-
-            return {
-                "title": clean_text(
-                    data.get("title", "")
-                ),
-                "author_name": clean_text(
-                    data.get("author_name", "")
-                ),
-                "author_url": clean_text(
-                    data.get("author_url", "")
-                ),
-                "thumbnail_url": clean_text(
-                    data.get("thumbnail_url", "")
-                ),
-                "video_id": extract_video_id(
-                    normalized_url
-                ),
-                "url": normalized_url
-            }
-
-    except Exception:
-
-        return {
-            "title": "",
-            "author_name": "",
-            "author_url": "",
-            "thumbnail_url": "",
-            "video_id": extract_video_id(
-                normalized_url
-            ),
-            "url": normalized_url
-        }
-
-
-# ============================================================
-# FREE TRANSCRIPT API
-# ============================================================
-
-async def get_transcript(
-    url: str
-) -> tuple[list[dict], dict]:
-
-    video_id = extract_video_id(url)
-
-    if not video_id:
-
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid YouTube URL."
-        )
-
-    params = {
-        "video_url": video_id
-    }
-
-    try:
-
-        async with httpx.AsyncClient(
-            timeout=60
-        ) as client:
-
-            response = await client.get(
-                TRANSCRIPT_API_URL,
-                params=params
-            )
-
-            # ------------------------------------------------
-            # HANDLE API ERROR
-            # ------------------------------------------------
-
-            if response.status_code != 200:
-
-                try:
-                    error_data = response.json()
-
-                except Exception:
-                    error_data = {}
-
-                error_message = (
-                    error_data
-                    .get("error", {})
-                    .get("message", "")
-                )
-
-                if not error_message:
-
-                    error_message = (
-                        response.text
-                        or "Failed to retrieve transcript."
-                    )
-
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        f"FreeTranscriptAPI "
-                        f"HTTP {response.status_code}: "
-                        f"{error_message}"
-                    )
-                )
-
-            data = response.json()
-
-    except HTTPException:
-        raise
-
-    except Exception as exc:
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Transcript API request failed: "
-                f"{type(exc).__name__}: {str(exc)}"
-            )
-        )
-
-    transcript = normalize_transcript(
-        data
-    )
-
-    if not transcript:
-
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "Transcript tidak ditemukan "
-                "atau video tidak memiliki caption."
-            )
-        )
-
-    return transcript, data
-
-
-# ============================================================
-# AI
-# ============================================================
-
-async def call_ai(
-    system_prompt: str,
-    user_prompt: str
-) -> str:
-
-    try:
-
-        response = await env.AI.run(
-            "@cf/meta/llama-3.1-8b-instruct-fast",
-            {
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": user_prompt
-                    }
-                ],
-
-                # Stabil / lebih konsisten
-                "temperature": 0.0,
-
-                # Seed tetap untuk membantu hasil konsisten
-                "seed": 42,
-
-                # Batasi output supaya tidak terlalu panjang
-                "max_tokens": 2048
-            }
-        )
-
-    except Exception as exc:
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Cloudflare AI request failed: "
-                f"{type(exc).__name__}: {str(exc)}"
-            )
-        )
-
-    if isinstance(response, dict):
-
-        if "response" in response:
-
-            return clean_text(
-                response["response"]
-            )
-
-        if "result" in response:
-
-            result = response["result"]
-
-            if isinstance(result, dict):
-
-                if "response" in result:
-
-                    return clean_text(
-                        result["response"]
-                    )
-
-            return clean_text(result)
-
-    return clean_text(response)
-
-
-# ============================================================
-# AI PROMPTS
-# ============================================================
-
-SYSTEM_PROMPT = """
-You are a highly critical professional video analyst.
-
-Analyze ONLY the transcript provided by the user.
-
-Your analysis must be:
-- accurate
-- evidence-based
-- concise
-- critical
-- neutral
-- consistent
-- useful
-
-IMPORTANT RULES:
-
-1. Never invent facts.
-2. Never use outside knowledge.
-3. Never assume information that is not present in the transcript.
-4. Distinguish between:
-   - factual statements
-   - claims
-   - opinions
-   - assumptions
-   - interpretations
-5. Do not criticize something merely because it is controversial.
-6. Criticism must be supported by the transcript.
-7. If evidence is insufficient, explicitly say so.
-8. Identify important logical weaknesses when present.
-9. Identify unsupported claims when present.
-10. Identify contradictions when present.
-11. Identify overgeneralization when present.
-12. Identify exaggerated conclusions when present.
-13. Identify unsupported cause-and-effect relationships when present.
-14. Identify missing evidence when it materially affects the conclusion.
-15. Identify one-sided framing when it materially affects the argument.
-16. Do not perform speaker identification.
-17. Do not guess who is speaking.
-18. Do not add facts from the real world.
-19. Do not praise or criticize based on personal preference.
-20. Focus on the substance of the transcript.
-
-The final answer MUST be valid JSON.
-
-Do not use markdown.
-
-Return exactly this structure:
-
-{
-  "summary": "",
-  "key_points": [],
-  "critical_analysis": [],
-  "takeaways": []
-}
-
-Requirements:
-
-summary:
-- 1 concise but informative paragraph.
-
-key_points:
-- exactly 5 items.
-- Each item must capture an important point from the transcript.
-- Do not repeat the same point.
-
-critical_analysis:
-- 3 to 5 items.
-- Each item must contain a meaningful critical observation.
-- Only mention weaknesses when supported by the transcript.
-- If the transcript is generally strong, say what is strong and what limitations remain.
-
-takeaways:
-- exactly 3 items.
-- Practical or intellectual conclusions from the transcript.
-"""
-
-
-def build_single_pass_prompt(
-    transcript_text: str
-) -> str:
-
-    return f"""
-Analyze the following complete video transcript.
-
-Do not identify speakers.
-
-TRANSCRIPT:
-
-{transcript_text}
-
-Return ONLY valid JSON.
-"""
-
-
-def build_chunk_prompt(
-    chunk_text: str,
-    chunk_number: int,
-    total_chunks: int
-) -> str:
-
-    return f"""
-Analyze this transcript segment.
-
-Segment:
-{chunk_number} of {total_chunks}
-
-Do not identify speakers.
-
-TRANSCRIPT SEGMENT:
-
-{chunk_text}
-
-Return ONLY valid JSON using this structure:
-
-{{
-  "summary": "",
-  "key_points": [],
-  "critical_analysis": [],
-  "takeaways": []
-}}
-
-For this segment:
-- summary: concise
-- key_points: important points only
-- critical_analysis: evidence-based critical observations
-- takeaways: concise conclusions
-"""
-
-
-def build_final_synthesis_prompt(
-    analyses: list[dict]
-) -> str:
-
-    material = json.dumps(
-        analyses,
-        ensure_ascii=False,
-        indent=2
-    )
-
-    return f"""
-Create the final analysis from the following transcript analyses.
-
-The analyses came from different sections of the SAME video.
-
-Combine them carefully.
-
-Do not invent information.
-
-Do not identify speakers.
-
-Remove duplicate points.
-
-Prioritize the most important information.
-
-CRITICAL ANALYSIS must remain evidence-based.
-
-Return ONLY valid JSON.
-
-Required structure:
-
-{{
-  "summary": "",
-  "key_points": [],
-  "critical_analysis": [],
-  "takeaways": []
-}}
-
-Requirements:
-
-summary:
-- 1 concise paragraph.
-
-key_points:
-- exactly 5 items.
-
-critical_analysis:
-- 3 to 5 items.
-
-takeaways:
-- exactly 3 items.
-
-SOURCE ANALYSES:
-
-{material}
-"""
-
-
-# ============================================================
-# JSON NORMALIZATION
+# NORMALIZE ANALYSIS
 # ============================================================
 
 def normalize_analysis(
-    data: dict
-) -> dict:
+    data
+):
+
+    if not isinstance(
+        data,
+        dict
+    ):
+
+        data = {}
 
     summary = clean_text(
-        data.get("summary", "")
+        data.get(
+            "summary",
+            ""
+        )
     )
 
     key_points = data.get(
@@ -756,149 +368,920 @@ def normalize_analysis(
         []
     )
 
-    if not isinstance(key_points, list):
+    if not isinstance(
+        key_points,
+        list
+    ):
+
         key_points = []
 
     if not isinstance(
         critical_analysis,
         list
     ):
+
         critical_analysis = []
 
-    if not isinstance(takeaways, list):
+    if not isinstance(
+        takeaways,
+        list
+    ):
+
         takeaways = []
 
     key_points = [
-        clean_text(x)
-        for x in key_points
-        if clean_text(x)
+        clean_text(item)
+        for item in key_points
+        if clean_text(item)
     ]
 
     critical_analysis = [
-        clean_text(x)
-        for x in critical_analysis
-        if clean_text(x)
+        clean_text(item)
+        for item in critical_analysis
+        if clean_text(item)
     ]
 
     takeaways = [
-        clean_text(x)
-        for x in takeaways
-        if clean_text(x)
+        clean_text(item)
+        for item in takeaways
+        if clean_text(item)
     ]
-
-    # Keep maximum lengths deterministic.
-    key_points = key_points[:5]
-
-    critical_analysis = (
-        critical_analysis[:5]
-    )
-
-    takeaways = takeaways[:3]
 
     return {
         "summary": summary,
-        "key_points": key_points,
-        "critical_analysis": critical_analysis,
-        "takeaways": takeaways
+
+        "key_points":
+            key_points[:5],
+
+        "critical_analysis":
+            critical_analysis[:5],
+
+        "takeaways":
+            takeaways[:3]
     }
 
 
 # ============================================================
-# SINGLE PASS ANALYSIS
+# NORMALIZE TRANSCRIPT
+# ============================================================
+
+def normalize_transcript(
+    data
+):
+
+    if not isinstance(
+        data,
+        dict
+    ):
+
+        return []
+
+    raw_segments = data.get(
+        "transcript",
+        []
+    )
+
+    if not isinstance(
+        raw_segments,
+        list
+    ):
+
+        return []
+
+    normalized = []
+
+    for item in raw_segments:
+
+        if not isinstance(
+            item,
+            dict
+        ):
+
+            continue
+
+        text = clean_text(
+            item.get(
+                "text",
+                ""
+            )
+        )
+
+        if not text:
+
+            continue
+
+        try:
+
+            start = float(
+                item.get(
+                    "start",
+                    0
+                )
+            )
+
+        except Exception:
+
+            start = 0.0
+
+        try:
+
+            duration = float(
+                item.get(
+                    "duration",
+                    0
+                )
+            )
+
+        except Exception:
+
+            duration = 0.0
+
+        normalized.append(
+            {
+                "text": text,
+                "start": start,
+                "duration": duration
+            }
+        )
+
+    return normalized
+
+
+# ============================================================
+# TRANSCRIPT TO TEXT
+# ============================================================
+
+def transcript_to_text(
+    transcript
+):
+
+    lines = []
+
+    for item in transcript:
+
+        start = item.get(
+            "start",
+            0
+        )
+
+        text = clean_text(
+            item.get(
+                "text",
+                ""
+            )
+        )
+
+        if not text:
+
+            continue
+
+        lines.append(
+            f"[{start:.2f}s] {text}"
+        )
+
+    return "\n".join(
+        lines
+    )
+
+
+# ============================================================
+# BUILD CHUNKS
+# ============================================================
+
+def build_chunks(
+    transcript,
+    max_chars=CHUNK_SIZE
+):
+
+    chunks = []
+
+    current_lines = []
+
+    current_length = 0
+
+    for item in transcript:
+
+        start = item.get(
+            "start",
+            0
+        )
+
+        text = clean_text(
+            item.get(
+                "text",
+                ""
+            )
+        )
+
+        if not text:
+
+            continue
+
+        line = (
+            f"[{start:.2f}s] "
+            f"{text}"
+        )
+
+        line_length = (
+            len(line) + 1
+        )
+
+        if (
+            current_lines
+            and
+            current_length
+            + line_length
+            > max_chars
+        ):
+
+            chunks.append(
+                "\n".join(
+                    current_lines
+                )
+            )
+
+            current_lines = []
+
+            current_length = 0
+
+        current_lines.append(
+            line
+        )
+
+        current_length += (
+            line_length
+        )
+
+    if current_lines:
+
+        chunks.append(
+            "\n".join(
+                current_lines
+            )
+        )
+
+    return chunks
+
+
+# ============================================================
+# YOUTUBE METADATA
+# ============================================================
+
+async def get_youtube_metadata(
+    url
+):
+
+    normalized_url = (
+        normalize_youtube_url(url)
+    )
+
+    params = {
+        "url": normalized_url,
+        "format": "json"
+    }
+
+    try:
+
+        async with httpx.AsyncClient(
+            timeout=20.0
+        ) as client:
+
+            response = await client.get(
+                YOUTUBE_OEMBED_URL,
+                params=params
+            )
+
+        if response.status_code != 200:
+
+            return {
+                "title": "",
+                "author_name": "",
+                "author_url": "",
+                "thumbnail_url": "",
+                "video_id":
+                    extract_video_id(
+                        normalized_url
+                    )
+            }
+
+        data = response.json()
+
+        return {
+            "title": clean_text(
+                data.get(
+                    "title",
+                    ""
+                )
+            ),
+
+            "author_name":
+                clean_text(
+                    data.get(
+                        "author_name",
+                        ""
+                    )
+                ),
+
+            "author_url":
+                clean_text(
+                    data.get(
+                        "author_url",
+                        ""
+                    )
+                ),
+
+            "thumbnail_url":
+                clean_text(
+                    data.get(
+                        "thumbnail_url",
+                        ""
+                    )
+                ),
+
+            "video_id":
+                extract_video_id(
+                    normalized_url
+                )
+        }
+
+    except Exception:
+
+        return {
+            "title": "",
+            "author_name": "",
+            "author_url": "",
+            "thumbnail_url": "",
+            "video_id":
+                extract_video_id(
+                    normalized_url
+                )
+        }
+
+
+# ============================================================
+# GET TRANSCRIPT
+# ============================================================
+
+async def get_transcript(
+    url
+):
+
+    normalized_url = (
+        normalize_youtube_url(url)
+    )
+
+    if not extract_video_id(
+        normalized_url
+    ):
+
+        return {
+            "ok": False,
+            "status_code": 400,
+            "message":
+                "Invalid YouTube URL.",
+            "data": None
+        }
+
+    # --------------------------------------------------------
+    # FreeTranscriptAPI accepts:
+    #
+    # video_url = YouTube URL
+    # OR
+    # video_url = 11-character video ID
+    # --------------------------------------------------------
+
+    params = {
+        "video_url":
+            normalized_url
+    }
+
+    try:
+
+        async with httpx.AsyncClient(
+            timeout=60.0
+        ) as client:
+
+            response = await client.get(
+                TRANSCRIPT_API_URL,
+                params=params
+            )
+
+    except Exception as exc:
+
+        return {
+            "ok": False,
+            "status_code": 502,
+            "message":
+                "Transcript API connection failed.",
+            "error_type":
+                type(exc).__name__,
+            "error":
+                str(exc),
+            "data": None
+        }
+
+    # --------------------------------------------------------
+    # Read response
+    # --------------------------------------------------------
+
+    try:
+
+        data = response.json()
+
+    except Exception:
+
+        data = {}
+
+    # --------------------------------------------------------
+    # API ERROR
+    # --------------------------------------------------------
+
+    if response.status_code >= 400:
+
+        return {
+            "ok": False,
+            "status_code":
+                response.status_code,
+
+            "message":
+                "FreeTranscriptAPI returned an error.",
+
+            "error":
+                response.text,
+
+            "data":
+                data
+        }
+
+    # --------------------------------------------------------
+    # TRANSCRIPT
+    # --------------------------------------------------------
+
+    transcript = normalize_transcript(
+        data
+    )
+
+    if not transcript:
+
+        return {
+            "ok": False,
+            "status_code": 404,
+            "message":
+                "Transcript tidak ditemukan "
+                "atau video tidak memiliki caption.",
+            "error":
+                data,
+            "data":
+                data
+        }
+
+    return {
+        "ok": True,
+        "status_code": 200,
+        "message": "Transcript retrieved.",
+        "data": data,
+        "transcript": transcript
+    }
+
+
+# ============================================================
+# AI SYSTEM PROMPT
+# ============================================================
+
+AI_SYSTEM_PROMPT = """
+You are a professional video content analyst.
+
+Your job is to analyze a YouTube transcript.
+
+IMPORTANT:
+
+- Analyze ONLY the transcript.
+- Do NOT use outside knowledge.
+- Do NOT invent facts.
+- Do NOT identify speakers.
+- Do NOT guess who said something.
+- Do NOT assign statements to specific people.
+- Do NOT assume missing context.
+- Do NOT criticize simply for the sake of criticizing.
+
+The analysis must be:
+- sharp
+- critical
+- evidence-based
+- neutral
+- concise
+- useful
+- consistent
+
+Separate:
+- facts
+- claims
+- opinions
+- assumptions
+- interpretations
+
+Look for meaningful issues such as:
+- unsupported claims
+- weak evidence
+- logical gaps
+- contradictions
+- overgeneralization
+- exaggeration
+- unsupported cause-and-effect
+- missing evidence
+- one-sided framing
+- misleading conclusions
+
+Only mention a weakness when the transcript actually supports it.
+
+If the transcript provides insufficient evidence,
+say so instead of inventing an answer.
+
+The same transcript should produce a stable,
+consistent analysis.
+
+Return ONLY valid JSON.
+
+The JSON structure MUST be:
+
+{
+  "en": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "takeaways": []
+  },
+  "id": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "takeaways": []
+  }
+}
+
+ENGLISH REQUIREMENTS:
+
+summary:
+- exactly 1 concise paragraph.
+
+key_points:
+- exactly 5 items.
+- Important points only.
+- No duplicated points.
+
+critical_analysis:
+- 3 to 5 items.
+- Evidence-based.
+- Sharp but fair.
+
+takeaways:
+- exactly 3 items.
+
+INDONESIAN REQUIREMENTS:
+
+summary:
+- exactly 1 concise paragraph.
+
+key_points:
+- exactly 5 items.
+
+critical_analysis:
+- 3 to 5 items.
+
+takeaways:
+- exactly 3 items.
+
+The Indonesian version must preserve
+the meaning of the English analysis.
+
+Do not add facts during translation.
+"""
+
+
+# ============================================================
+# BUILD AI PROMPT
+# ============================================================
+
+def build_ai_prompt(
+    transcript_text,
+    title=""
+):
+
+    return f"""
+Analyze the following YouTube video transcript.
+
+VIDEO TITLE:
+{title}
+
+TRANSCRIPT:
+
+{transcript_text}
+
+Remember:
+
+1. Do not identify speakers.
+2. Do not guess speaker identity.
+3. Use only the transcript.
+4. Be critical when evidence supports criticism.
+5. Do not invent facts.
+6. Return ONLY valid JSON.
+"""
+
+
+# ============================================================
+# CALL CLOUDFLARE AI
+# ============================================================
+
+async def call_ai(
+    system_prompt,
+    user_prompt
+):
+
+    try:
+
+        response = await env.AI.run(
+            AI_MODEL,
+            {
+                "messages": [
+                    {
+                        "role":
+                            "system",
+                        "content":
+                            system_prompt
+                    },
+                    {
+                        "role":
+                            "user",
+                        "content":
+                            user_prompt
+                    }
+                ],
+
+                "temperature": 0.0,
+
+                "seed": 42,
+
+                "max_tokens": 2500
+            }
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "Cloudflare Workers AI failed: "
+            f"{type(exc).__name__}: "
+            f"{str(exc)}"
+        )
+
+    # --------------------------------------------------------
+    # Cloudflare Workers AI current response:
+    #
+    # {
+    #   "response": "..."
+    # }
+    #
+    # But support alternative response shapes too.
+    # --------------------------------------------------------
+
+    if isinstance(
+        response,
+        dict
+    ):
+
+        # Standard Workers AI
+        content = response.get(
+            "response",
+            ""
+        )
+
+        if content:
+
+            return clean_text(
+                content
+            )
+
+        # Alternative shape
+        result = response.get(
+            "result"
+        )
+
+        if isinstance(
+            result,
+            dict
+        ):
+
+            content = result.get(
+                "response",
+                ""
+            )
+
+            if content:
+
+                return clean_text(
+                    content
+                )
+
+        # OpenAI-style shape
+        choices = response.get(
+            "choices"
+        )
+
+        if isinstance(
+            choices,
+            list
+        ) and choices:
+
+            first = choices[0]
+
+            if isinstance(
+                first,
+                dict
+            ):
+
+                message = first.get(
+                    "message",
+                    {}
+                )
+
+                if isinstance(
+                    message,
+                    dict
+                ):
+
+                    content = message.get(
+                        "content",
+                        ""
+                    )
+
+                    if content:
+
+                        return clean_text(
+                            content
+                        )
+
+    # --------------------------------------------------------
+    # String response
+    # --------------------------------------------------------
+
+    if isinstance(
+        response,
+        str
+    ):
+
+        return clean_text(
+            response
+        )
+
+    raise RuntimeError(
+        "Cloudflare AI returned an "
+        "unexpected response format: "
+        + repr(response)
+    )
+
+
+# ============================================================
+# ANALYZE SINGLE PASS
 # ============================================================
 
 async def analyze_single_pass(
-    transcript_text: str
-) -> dict:
+    transcript_text,
+    title
+):
 
-    prompt = build_single_pass_prompt(
-        transcript_text
+    prompt = build_ai_prompt(
+        transcript_text,
+        title
     )
 
     raw = await call_ai(
-        SYSTEM_PROMPT,
+        AI_SYSTEM_PROMPT,
         prompt
     )
 
     try:
 
-        parsed = parse_json_response(
+        parsed = parse_ai_json(
             raw
         )
 
     except Exception as exc:
 
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "AI returned invalid JSON: "
-                f"{str(exc)}"
-            )
+        raise RuntimeError(
+            "AI returned invalid JSON. "
+            f"Raw response: {raw[:3000]}. "
+            f"Parser error: {str(exc)}"
         )
 
-    return normalize_analysis(
-        parsed
+    en_data = normalize_analysis(
+        parsed.get(
+            "en",
+            {}
+        )
     )
 
+    id_data = normalize_analysis(
+        parsed.get(
+            "id",
+            {}
+        )
+    )
+
+    # --------------------------------------------------------
+    # If Indonesian result is missing,
+    # don't crash the whole analysis.
+    # --------------------------------------------------------
+
+    if not id_data["summary"]:
+
+        id_data = {
+            "summary":
+                "Analisis Bahasa Indonesia "
+                "tidak tersedia.",
+
+            "key_points": [],
+
+            "critical_analysis": [],
+
+            "takeaways": []
+        }
+
+    return {
+        "en": en_data,
+        "id": id_data
+    }
+
 
 # ============================================================
-# CHUNK ANALYSIS
+# CHUNK SYSTEM PROMPT
 # ============================================================
 
-async def analyze_chunk(
-    chunk_text: str,
-    chunk_number: int,
-    total_chunks: int
-) -> dict:
+CHUNK_SYSTEM_PROMPT = """
+You are analyzing one segment of a longer YouTube transcript.
 
-    system_prompt = """
-You are a professional transcript analyst.
+Analyze ONLY this segment.
 
-Analyze ONLY the provided transcript segment.
+Do not identify speakers.
 
-Never identify speakers.
-
-Never invent facts.
+Do not invent facts.
 
 Focus on:
 - important information
 - claims
 - arguments
 - evidence
+- assumptions
 - logical weaknesses
 - contradictions
-- assumptions
-- unsupported conclusions
+- unsupported claims
+
+Return ONLY valid JSON:
+
+{
+  "summary": "",
+  "key_points": [],
+  "critical_analysis": [],
+  "takeaways": []
+}
+"""
+
+
+# ============================================================
+# ANALYZE CHUNK
+# ============================================================
+
+async def analyze_chunk(
+    chunk,
+    chunk_index,
+    total_chunks
+):
+
+    prompt = f"""
+Analyze transcript segment
+{chunk_index} of {total_chunks}.
+
+TRANSCRIPT SEGMENT:
+
+{chunk}
 
 Return ONLY valid JSON.
 """
 
-    prompt = build_chunk_prompt(
-        chunk_text,
-        chunk_number,
-        total_chunks
-    )
-
     raw = await call_ai(
-        system_prompt,
+        CHUNK_SYSTEM_PROMPT,
         prompt
     )
 
     try:
 
-        parsed = parse_json_response(
+        parsed = parse_ai_json(
             raw
         )
 
     except Exception as exc:
 
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "AI returned invalid JSON "
-                f"for chunk {chunk_number}: "
-                f"{str(exc)}"
-            )
+        raise RuntimeError(
+            "Chunk AI returned invalid JSON: "
+            f"{str(exc)}"
         )
 
     return normalize_analysis(
@@ -906,23 +1289,137 @@ Return ONLY valid JSON.
     )
 
 
-async def analyze_long_transcript(
-    transcript: list[dict]
-) -> dict:
+# ============================================================
+# LONG VIDEO SYNTHESIS
+# ============================================================
 
-    chunks = chunk_transcript(
+async def synthesize_long_video(
+    chunk_results,
+    title
+):
+
+    material = json.dumps(
+        chunk_results,
+        ensure_ascii=False
+    )
+
+    system_prompt = """
+You are a professional video analyst.
+
+Create a final analysis from
+multiple transcript segment analyses.
+
+Do not identify speakers.
+
+Do not invent facts.
+
+Remove duplicated points.
+
+Prioritize the most important information.
+
+Return ONLY valid JSON:
+
+{
+  "en": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "takeaways": []
+  },
+  "id": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "takeaways": []
+  }
+}
+
+Requirements:
+
+EN:
+- summary: 1 paragraph
+- key_points: exactly 5
+- critical_analysis: 3 to 5
+- takeaways: exactly 3
+
+ID:
+- summary: 1 paragraph
+- key_points: exactly 5
+- critical_analysis: 3 to 5
+- takeaways: exactly 3
+"""
+
+    user_prompt = f"""
+VIDEO TITLE:
+
+{title}
+
+SEGMENT ANALYSES:
+
+{material}
+
+Create the final analysis.
+"""
+
+    raw = await call_ai(
+        system_prompt,
+        user_prompt
+    )
+
+    try:
+
+        parsed = parse_ai_json(
+            raw
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "Final synthesis returned "
+            "invalid JSON: "
+            f"{str(exc)}"
+        )
+
+    return {
+        "en":
+            normalize_analysis(
+                parsed.get(
+                    "en",
+                    {}
+                )
+            ),
+
+        "id":
+            normalize_analysis(
+                parsed.get(
+                    "id",
+                    {}
+                )
+            )
+    }
+
+
+# ============================================================
+# ANALYZE LONG TRANSCRIPT
+# ============================================================
+
+async def analyze_long_transcript(
+    transcript,
+    title
+):
+
+    chunks = build_chunks(
         transcript,
         CHUNK_SIZE
     )
 
     if not chunks:
 
-        raise HTTPException(
-            status_code=400,
-            detail="Transcript is empty."
+        raise RuntimeError(
+            "Unable to create transcript chunks."
         )
 
-    analyses = []
+    results = []
 
     for index, chunk in enumerate(
         chunks,
@@ -935,146 +1432,14 @@ async def analyze_long_transcript(
             len(chunks)
         )
 
-        analyses.append(result)
-
-    final_prompt = (
-        build_final_synthesis_prompt(
-            analyses
-        )
-    )
-
-    raw = await call_ai(
-        SYSTEM_PROMPT,
-        final_prompt
-    )
-
-    try:
-
-        parsed = parse_json_response(
-            raw
+        results.append(
+            result
         )
 
-    except Exception as exc:
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Final AI synthesis returned "
-                f"invalid JSON: {str(exc)}"
-            )
-        )
-
-    return normalize_analysis(
-        parsed
+    return await synthesize_long_video(
+        results,
+        title
     )
-
-
-# ============================================================
-# TRANSLATION
-# ============================================================
-
-TRANSLATION_SYSTEM_PROMPT = """
-You are a professional translator.
-
-Translate the supplied English video analysis into natural Indonesian.
-
-Preserve:
-- meaning
-- structure
-- critical nuance
-- factual accuracy
-
-Do not add information.
-
-Do not remove important information.
-
-Do not identify speakers.
-
-Return ONLY valid JSON.
-
-Required structure:
-
-{
-  "summary": "",
-  "key_points": [],
-  "critical_analysis": [],
-  "takeaways": []
-}
-"""
-
-
-def build_translation_prompt(
-    english_data: dict
-) -> str:
-
-    source = json.dumps(
-        english_data,
-        ensure_ascii=False
-    )
-
-    return f"""
-Translate this analysis from English to Indonesian.
-
-SOURCE:
-
-{source}
-
-Return ONLY valid JSON.
-"""
-
-
-async def translate_analysis(
-    english_data: dict
-) -> dict:
-
-    raw = await call_ai(
-        TRANSLATION_SYSTEM_PROMPT,
-        build_translation_prompt(
-            english_data
-        )
-    )
-
-    try:
-
-        parsed = parse_json_response(
-            raw
-        )
-
-    except Exception as exc:
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "AI translation returned "
-                f"invalid JSON: {str(exc)}"
-            )
-        )
-
-    return normalize_analysis(
-        parsed
-    )
-
-
-# ============================================================
-# HEALTH CHECK
-# ============================================================
-
-@app.get("/")
-async def root():
-
-    return {
-        "status": "ok",
-        "service": "AI Video Summarizer API",
-        "version": "2.0.0"
-    }
-
-
-@app.get("/health")
-async def health():
-
-    return {
-        "status": "healthy"
-    }
 
 
 # ============================================================
@@ -1086,170 +1451,329 @@ async def analyze_video(
     payload: dict
 ):
 
-    url = clean_text(
-        payload.get("url", "")
-    )
+    try:
 
-    if not url:
+        # ====================================================
+        # 1. VALIDATE URL
+        # ====================================================
 
-        raise HTTPException(
-            status_code=400,
-            detail="YouTube URL is required."
-        )
+        if not isinstance(
+            payload,
+            dict
+        ):
 
-    video_id = extract_video_id(
-        url
-    )
+            return {
+                "status": "error",
+                "message":
+                    "Invalid request body.",
+                "error_type":
+                    "ValidationError"
+            }
 
-    if not video_id:
-
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid YouTube URL."
-        )
-
-    # --------------------------------------------------------
-    # 1. GET YOUTUBE METADATA
-    # --------------------------------------------------------
-
-    metadata = await get_youtube_metadata(
-        url
-    )
-
-    # --------------------------------------------------------
-    # 2. GET TRANSCRIPT
-    # --------------------------------------------------------
-
-    transcript, transcript_source = (
-        await get_transcript(url)
-    )
-
-    # --------------------------------------------------------
-    # 3. TRANSCRIPT HASH
-    # --------------------------------------------------------
-
-    t_hash = transcript_hash(
-        transcript
-    )
-
-    transcript_text = transcript_to_text(
-        transcript
-    )
-
-    if not transcript_text:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Transcript text is empty."
-        )
-
-    # --------------------------------------------------------
-    # 4. AI ANALYSIS
-    # --------------------------------------------------------
-
-    if len(transcript_text) <= MAX_SINGLE_PASS_CHARS:
-
-        # FAST PATH
-        #
-        # Most normal videos use only ONE AI analysis call.
-        #
-        english_analysis = (
-            await analyze_single_pass(
-                transcript_text
+        url = clean_text(
+            payload.get(
+                "url",
+                ""
             )
         )
 
-        analysis_mode = "single_pass"
+        if not url:
 
-    else:
+            return {
+                "status": "error",
+                "message":
+                    "YouTube URL is required.",
+                "error_type":
+                    "ValidationError"
+            }
 
-        # LONG VIDEO PATH
-        #
-        # Very long transcript uses chunking.
-        #
-
-        english_analysis = (
-            await analyze_long_transcript(
-                transcript
-            )
+        video_id = extract_video_id(
+            url
         )
 
-        analysis_mode = "chunked"
+        if not video_id:
 
-    # --------------------------------------------------------
-    # 5. INDONESIAN VERSION
-    # --------------------------------------------------------
+            return {
+                "status": "error",
+                "message":
+                    "Invalid YouTube URL.",
+                "error_type":
+                    "ValidationError"
+            }
 
-    indonesian_analysis = (
-        await translate_analysis(
-            english_analysis
-        )
-    )
-
-    # --------------------------------------------------------
-    # 6. FINAL RESPONSE
-    # --------------------------------------------------------
-
-    return {
-        "success": True,
-
-        "video": {
-            "id": video_id,
-            "url": normalize_youtube_url(
+        normalized_url = (
+            normalize_youtube_url(
                 url
-            ),
-            "title": metadata.get(
+            )
+        )
+
+        # ====================================================
+        # 2. GET YOUTUBE METADATA
+        # ====================================================
+
+        metadata = (
+            await get_youtube_metadata(
+                normalized_url
+            )
+        )
+
+        video_title = clean_text(
+            metadata.get(
                 "title",
                 ""
-            ),
-            "author_name": metadata.get(
-                "author_name",
-                ""
-            ),
-            "author_url": metadata.get(
-                "author_url",
-                ""
-            ),
-            "thumbnail_url": metadata.get(
-                "thumbnail_url",
-                ""
             )
-        },
+        )
 
-        "transcript": transcript,
+        # ====================================================
+        # 3. GET TRANSCRIPT
+        # ====================================================
 
-        "transcript_info": {
-            "language": transcript_source.get(
-                "language",
-                ""
+        transcript_result = (
+            await get_transcript(
+                normalized_url
             )
-            if isinstance(
-                transcript_source,
-                dict
+        )
+
+        if not transcript_result.get(
+            "ok",
+            False
+        ):
+
+            return {
+                "status": "error",
+
+                "message":
+                    transcript_result.get(
+                        "message",
+                        "Failed to retrieve transcript."
+                    ),
+
+                "error_type":
+                    "TranscriptAPIError",
+
+                "error":
+                    transcript_result.get(
+                        "error",
+                        ""
+                    ),
+
+                "http_status":
+                    transcript_result.get(
+                        "status_code",
+                        502
+                    )
+            }
+
+        transcript = (
+            transcript_result.get(
+                "transcript",
+                []
             )
-            else "",
-            "segments": len(
+        )
+
+        transcript_source = (
+            transcript_result.get(
+                "data",
+                {}
+            )
+        )
+
+        # ====================================================
+        # 4. VALIDATE TRANSCRIPT
+        # ====================================================
+
+        if not transcript:
+
+            return {
+                "status": "error",
+                "message":
+                    "Transcript is empty.",
+                "error_type":
+                    "TranscriptEmpty"
+            }
+
+        full_transcript = (
+            transcript_to_text(
                 transcript
-            ),
-            "characters": len(
-                transcript_text
-            ),
-            "hash": t_hash
-        },
-
-        "analysis": {
-            "mode": analysis_mode,
-            "single_pass": (
-                analysis_mode
-                == "single_pass"
             )
-        },
+        )
 
-        "summary": {
-            "en": english_analysis,
-            "id": indonesian_analysis
+        if not full_transcript:
+
+            return {
+                "status": "error",
+                "message":
+                    "Transcript text is empty.",
+                "error_type":
+                    "TranscriptEmpty"
+            }
+
+        # ====================================================
+        # 5. HASH
+        # ====================================================
+
+        transcript_hash = (
+            create_transcript_hash(
+                transcript
+            )
+        )
+
+        # ====================================================
+        # 6. ANALYZE
+        # ====================================================
+
+        transcript_characters = len(
+            full_transcript
+        )
+
+        if (
+            transcript_characters
+            <= MAX_SINGLE_PASS_CHARS
+        ):
+
+            # ------------------------------------------------
+            # FAST PATH
+            # ------------------------------------------------
+
+            summary = (
+                await analyze_single_pass(
+                    full_transcript,
+                    video_title
+                )
+            )
+
+            analysis_mode = (
+                "single_pass"
+            )
+
+            total_chunks = 1
+
+        else:
+
+            # ------------------------------------------------
+            # LONG VIDEO PATH
+            # ------------------------------------------------
+
+            summary = (
+                await analyze_long_transcript(
+                    transcript,
+                    video_title
+                )
+            )
+
+            analysis_mode = (
+                "chunked"
+            )
+
+            total_chunks = len(
+                build_chunks(
+                    transcript,
+                    CHUNK_SIZE
+                )
+            )
+
+        # ====================================================
+        # 7. RETURN
+        # ====================================================
+
+        return {
+            "status": "success",
+
+            "version": "3.0.0",
+
+            "youtube_url":
+                normalized_url,
+
+            "video_id":
+                video_id,
+
+            "title":
+                video_title,
+
+            "language":
+                transcript_source.get(
+                    "language",
+                    ""
+                )
+                if isinstance(
+                    transcript_source,
+                    dict
+                )
+                else "",
+
+            "metadata": {
+                "youtube_title":
+                    metadata.get(
+                        "title",
+                        ""
+                    ),
+
+                "channel":
+                    metadata.get(
+                        "author_name",
+                        ""
+                    ),
+
+                "author_url":
+                    metadata.get(
+                        "author_url",
+                        ""
+                    ),
+
+                "thumbnail_url":
+                    metadata.get(
+                        "thumbnail_url",
+                        ""
+                    )
+            },
+
+            "processing": {
+
+                "mode":
+                    analysis_mode,
+
+                "total_segments":
+                    len(transcript),
+
+                "total_chunks":
+                    total_chunks,
+
+                "transcript_characters":
+                    transcript_characters,
+
+                "transcript_hash":
+                    transcript_hash
+            },
+
+            "summary":
+                summary,
+
+            "transcript":
+                transcript
         }
-    }
+
+    except Exception as error:
+
+        # ====================================================
+        # IMPORTANT:
+        # ALWAYS RETURN FRONTEND-FRIENDLY ERROR
+        # ====================================================
+
+        return {
+            "status": "error",
+
+            "message":
+                "Worker exception",
+
+            "error_type":
+                type(error).__name__,
+
+            "error":
+                str(error),
+
+            "http_status":
+                500
+        }
 
 
 # ============================================================
