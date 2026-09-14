@@ -15,7 +15,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="8.1.0"
+    version="9.1.0"
 )
 
 
@@ -739,6 +739,283 @@ Before returning JSON:
 23. Prefer fewer strong conclusions over many weak conclusions.
 24. If evidence is insufficient, omit or reduce the section.
 25. Return valid JSON only.
+"""
+
+
+# ============================================================
+# MASTER ANALYSIS SYSTEM PROMPT
+# ============================================================
+
+MASTER_SYSTEM_PROMPT = """
+You are a professional media monitoring and news analysis AI.
+
+Analyze ONLY the supplied transcript or factual extraction notes.
+The source material is the PRIMARY SOURCE.
+
+Produce ONE MASTER ANALYSIS in ENGLISH only.
+This English result will later be translated into Indonesian by a
+separate translation step. Therefore the English output is the
+single source of truth for all facts and analytical conclusions.
+
+Do not produce an Indonesian version here.
+Do not produce two alternative interpretations.
+Do not identify speakers.
+Do not use outside knowledge.
+
+Separate FACT from INFERENCE.
+Every analytical inference MUST begin with exactly:
+"Inference:"
+
+============================================================
+MASTER CONTENT REQUIREMENTS
+============================================================
+
+SUMMARY:
+- 180-300 words when sufficient information is available.
+- Include the main subject, important facts, events, actors,
+  numbers, dates, actions, responses, impacts, and significance
+  when supported by the source.
+- Do not omit important factual information merely to make the
+  summary shorter.
+
+KEY POINTS:
+- Provide 5-8 distinct points.
+- Preserve important dates, locations, names, numbers, actors,
+  actions, developments, and outcomes supported by the source.
+- Each point should contain useful information.
+
+CRITICAL ANALYSIS:
+- Provide 2-4 meaningful analytical conclusions.
+- Every inference MUST begin with "Inference:".
+- Do not merely repeat the summary.
+
+IMPLICATIONS:
+- Provide 2-4 reasonable implications grounded in the source.
+- Every inference MUST begin with "Inference:".
+- Avoid distant or unsupported predictions.
+
+SENTIMENT:
+- Choose exactly one: positive, negative, neutral.
+- Base it on the overall reporting tone.
+
+MAIN ISSUE:
+- Identify the central issue or event.
+
+MEDIA ANALYSIS:
+- news_angle
+- highlighted_actors
+- pemprov_jateng_position
+- public_opinion_potential
+- key_messages
+
+COMMUNICATION RISK:
+- level must be exactly low, medium, or high.
+- Include reason and escalation_potential.
+
+RECOMMENDATIONS:
+- Use only relevant recommendation types.
+- Allowed types:
+  amplification
+  clarification
+  counter_narrative
+  media_engagement
+  monitoring
+- Every recommendation MUST contain:
+  type, action, reason.
+- Action and reason must be specific to this source.
+
+TAKEAWAYS:
+- Provide 2-4 concise conclusions.
+- Do not simply copy the summary.
+- Every inferential takeaway MUST begin with "Inference:".
+
+============================================================
+MASTER QUALITY CONTROL
+============================================================
+
+Before returning JSON:
+1. Use only source-supported facts.
+2. Do not invent facts, people, organizations, numbers, dates,
+   locations, actions, motives, outcomes, or causes.
+3. Preserve all important factual coverage across Summary and Key Points.
+4. Do not let analytical interpretation replace factual details.
+5. Ensure Key Points cover the most important facts from the source.
+6. Ensure Critical Analysis adds analytical value.
+7. Ensure Implications add reasonable consequences or significance.
+8. Ensure Recommendations follow directly from the analysis.
+9. Ensure sentiment and risk are internally consistent with the evidence.
+10. Return ONLY valid JSON.
+
+============================================================
+OUTPUT JSON
+============================================================
+
+Return exactly:
+{
+  "en": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "implications": [],
+    "sentiment": {
+      "label": "positive",
+      "reason": ""
+    },
+    "main_issue": {
+      "title": "",
+      "description": ""
+    },
+    "media_analysis": {
+      "news_angle": "",
+      "highlighted_actors": [],
+      "pemprov_jateng_position": "",
+      "public_opinion_potential": "",
+      "key_messages": []
+    },
+    "communication_risk": {
+      "level": "low",
+      "reason": "",
+      "escalation_potential": ""
+    },
+    "recommendations": [
+      {
+        "type": "monitoring",
+        "action": "",
+        "reason": ""
+      }
+    ],
+    "takeaways": []
+  }
+}
+"""
+
+# ============================================================
+# INDONESIAN TRANSLATION SYSTEM PROMPT
+# ============================================================
+
+INDONESIAN_TRANSLATION_SYSTEM_PROMPT = """
+You are a professional Indonesian translator for a media monitoring
+and communication analysis report.
+
+Translate ONE MASTER ENGLISH ANALYSIS into Indonesian.
+
+CRITICAL RULE:
+This is TRANSLATION, NOT RE-ANALYSIS.
+
+The Indonesian output must preserve EXACTLY the same:
+- facts
+- numbers
+- dates
+- locations
+- names
+- actors
+- events
+- actions
+- conclusions
+- sentiment label
+- communication risk level
+- recommendation types
+- number and order of list items
+- analytical meaning
+
+Do NOT add, remove, reinterpret, or substitute information.
+Do NOT independently analyze the source.
+
+Only the language changes.
+
+============================================================
+TRANSLATION RULES
+============================================================
+
+1. Translate natural professional English into natural professional
+   Indonesian suitable for an office media monitoring report.
+
+2. Preserve all numbers exactly.
+
+3. Preserve all dates exactly unless the date wording naturally
+   changes into Indonesian.
+
+4. Preserve names of people, organizations, locations, events,
+   programs, and official titles accurately.
+
+5. Preserve the same number of Key Points, Critical Analysis,
+   Implications, Recommendations, and Takeaways.
+
+6. Preserve the same order of items.
+
+7. Do not shorten the Summary by deleting factual details.
+
+8. Do not introduce facts that are absent from the English master.
+
+9. Every text beginning with "Inference:" in English MUST begin
+   with "Inference:" in Indonesian as well. Keep the literal prefix
+   "Inference:" so the application can recognize it consistently.
+
+10. Controlled values MUST remain unchanged internally:
+    sentiment.label = positive / negative / neutral
+    communication_risk.level = low / medium / high
+    recommendations[].type = amplification / clarification /
+    counter_narrative / media_engagement / monitoring
+
+11. Translate recommendation prose fully into Indonesian.
+    NEVER leave Action or Reason in English.
+
+12. Translate these common recommendation labels naturally:
+    amplification = amplifikasi
+    clarification = klarifikasi
+    counter_narrative = kontra-narasi
+    media_engagement = engagement media
+    monitoring = monitoring
+
+============================================================
+FINAL CHECK
+============================================================
+
+Before returning JSON, compare the Indonesian output against the
+English master field-by-field.
+
+The Indonesian version must be a faithful translation of the master,
+not a new interpretation.
+
+Return ONLY valid JSON.
+
+OUTPUT:
+{
+  "id": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "implications": [],
+    "sentiment": {
+      "label": "positive",
+      "reason": ""
+    },
+    "main_issue": {
+      "title": "",
+      "description": ""
+    },
+    "media_analysis": {
+      "news_angle": "",
+      "highlighted_actors": [],
+      "pemprov_jateng_position": "",
+      "public_opinion_potential": "",
+      "key_messages": []
+    },
+    "communication_risk": {
+      "level": "low",
+      "reason": "",
+      "escalation_potential": ""
+    },
+    "recommendations": [
+      {
+        "type": "monitoring",
+        "action": "",
+        "reason": ""
+      }
+    ],
+    "takeaways": []
+  }
+}
 """
 
 
@@ -2081,19 +2358,9 @@ def synchronize_language_analysis(result):
                     "action",
                     ""
                 )
-            ) or normalize_text(
-                en_item.get(
-                    "action",
-                    ""
-                )
             ),
             "reason": normalize_text(
                 id_item.get(
-                    "reason",
-                    ""
-                )
-            ) or normalize_text(
-                en_item.get(
                     "reason",
                     ""
                 )
@@ -2714,6 +2981,315 @@ async def fetch_transcript(
 
 
 # ============================================================
+# MASTER -> INDONESIAN TRANSLATION
+# ============================================================
+
+async def translate_master_to_indonesian(
+    master_en
+):
+
+    if not isinstance(master_en, dict):
+        raise ValueError(
+            "Master English analysis is invalid."
+        )
+
+    source_json = json.dumps(
+        {
+            "en": master_en
+        },
+        ensure_ascii=False,
+        indent=2
+    )
+
+    prompt = """
+Translate the following MASTER ENGLISH ANALYSIS into Indonesian.
+
+IMPORTANT:
+- This is translation only, NOT a new analysis.
+- Preserve every fact, number, date, actor, issue, conclusion,
+  recommendation type, and list-item count.
+- Preserve the same order.
+- Translate ALL prose, especially recommendation action and reason.
+- Do not leave English sentences in the Indonesian result.
+- Keep the literal prefix "Inference:" for inferential items.
+- Keep controlled internal values unchanged.
+
+MASTER ENGLISH ANALYSIS:
+
+""" + source_json
+
+    result = await run_ai(
+        INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
+        prompt,
+        5000
+    )
+
+    parsed = parse_ai_json(
+        result
+    )
+
+    id_block = parsed.get(
+        "id",
+        parsed
+    )
+
+    if not isinstance(id_block, dict):
+        raise ValueError(
+            "Indonesian translation returned invalid data."
+        )
+
+    return normalize_language_block(
+        id_block
+    )
+
+
+def validate_indonesian_translation(
+    master_en,
+    id_block
+):
+
+    if not isinstance(master_en, dict):
+        raise ValueError(
+            "Master English analysis is invalid."
+        )
+
+    if not isinstance(id_block, dict):
+        raise ValueError(
+            "Indonesian analysis is invalid."
+        )
+
+    # Required text fields must exist in ID.
+    required_text_fields = [
+        "summary"
+    ]
+
+    for field_name in required_text_fields:
+        if not normalize_text(
+            id_block.get(field_name, "")
+        ):
+            raise ValueError(
+                "Indonesian translation is incomplete: "
+                + field_name
+            )
+
+    # List sections must preserve item counts.
+    list_fields = [
+        "key_points",
+        "critical_analysis",
+        "implications",
+        "takeaways"
+    ]
+
+    for field_name in list_fields:
+
+        en_items = master_en.get(
+            field_name,
+            []
+        )
+        id_items = id_block.get(
+            field_name,
+            []
+        )
+
+        if not isinstance(en_items, list):
+            en_items = []
+
+        if not isinstance(id_items, list):
+            id_items = []
+
+        if len(en_items) != len(id_items):
+            raise ValueError(
+                "Indonesian translation changed item count: "
+                + field_name
+            )
+
+        for index, en_item in enumerate(en_items):
+            id_item = id_items[index]
+
+            en_text = normalize_text(en_item)
+            id_text = normalize_text(id_item)
+
+            if en_text and not id_text:
+                raise ValueError(
+                    "Indonesian translation contains an empty item: "
+                    + field_name
+                )
+
+    # Main issue must be complete.
+    en_issue = master_en.get(
+        "main_issue",
+        {}
+    )
+    id_issue = id_block.get(
+        "main_issue",
+        {}
+    )
+
+    if not isinstance(en_issue, dict):
+        en_issue = {}
+    if not isinstance(id_issue, dict):
+        id_issue = {}
+
+    if en_issue.get("title") and not id_issue.get("title"):
+        raise ValueError(
+            "Indonesian translation is incomplete: main_issue.title"
+        )
+
+    if en_issue.get("description") and not id_issue.get("description"):
+        raise ValueError(
+            "Indonesian translation is incomplete: main_issue.description"
+        )
+
+    # Recommendation count and prose must be preserved.
+    en_recs = master_en.get(
+        "recommendations",
+        []
+    )
+    id_recs = id_block.get(
+        "recommendations",
+        []
+    )
+
+    if not isinstance(en_recs, list):
+        en_recs = []
+    if not isinstance(id_recs, list):
+        id_recs = []
+
+    if len(en_recs) != len(id_recs):
+        raise ValueError(
+            "Indonesian translation changed recommendation count."
+        )
+
+    for index, en_rec in enumerate(en_recs):
+
+        if not isinstance(en_rec, dict):
+            continue
+
+        id_rec = id_recs[index]
+        if not isinstance(id_rec, dict):
+            raise ValueError(
+                "Indonesian recommendation item is invalid."
+            )
+
+        en_type = str(
+            en_rec.get("type", "")
+        ).strip().lower()
+        id_type = str(
+            id_rec.get("type", "")
+        ).strip().lower()
+
+        if en_type != id_type:
+            raise ValueError(
+                "Indonesian recommendation type changed."
+            )
+
+        for prose_field in [
+            "action",
+            "reason"
+        ]:
+            if (
+                normalize_text(
+                    en_rec.get(prose_field, "")
+                )
+                and not normalize_text(
+                    id_rec.get(prose_field, "")
+                )
+            ):
+                raise ValueError(
+                    "Indonesian recommendation is incomplete: "
+                    + prose_field
+                )
+
+    # Important: if the translation is exactly identical to English
+    # for a whole prose field, it is almost certainly untranslated.
+    # This specifically catches the current Action/Reason problem.
+    if (
+        normalize_text(master_en.get("summary", ""))
+        and normalize_text(master_en.get("summary", ""))
+        == normalize_text(id_block.get("summary", ""))
+    ):
+        raise ValueError(
+            "Indonesian summary appears untranslated."
+        )
+
+    for index, en_rec in enumerate(en_recs):
+        if not isinstance(en_rec, dict):
+            continue
+
+        id_rec = id_recs[index]
+
+        for prose_field in [
+            "action",
+            "reason"
+        ]:
+            en_text = normalize_text(
+                en_rec.get(prose_field, "")
+            )
+            id_text = normalize_text(
+                id_rec.get(prose_field, "")
+            )
+
+            if en_text and id_text and en_text == id_text:
+                raise ValueError(
+                    "Indonesian recommendation "
+                    + prose_field
+                    + " appears untranslated."
+                )
+
+    return True
+
+
+async def build_consistent_analysis(
+    master_result
+):
+
+    if not isinstance(master_result, dict):
+        raise ValueError(
+            "Master analysis returned invalid data."
+        )
+
+    master_en = master_result.get(
+        "en",
+        master_result
+    )
+
+    if not isinstance(master_en, dict):
+        raise ValueError(
+            "Master English analysis is missing."
+        )
+
+    master_en = normalize_language_block(
+        master_en
+    )
+
+    id_block = await translate_master_to_indonesian(
+        master_en
+    )
+
+    validate_indonesian_translation(
+        master_en,
+        id_block
+    )
+
+    result = {
+        "en": master_en,
+        "id": id_block
+    }
+
+    # Lock controlled analytical decisions to the master EN result.
+    result = synchronize_language_analysis(
+        result
+    )
+
+    # Do NOT copy English prose into Indonesian as a fallback.
+    # The Indonesian block must come from the translation step so
+    # that no English text can leak into the ID report.
+    return enforce_inference_labels(
+        result
+    )
+
+
+# ============================================================
 # ANALYZE LARGE TRANSCRIPT
 # ============================================================
 
@@ -2772,11 +3348,9 @@ async def analyze_large_transcript(
 Create the final professional video analysis from the following
 factual extraction notes.
 
-IMPORTANT: Produce ONE master analysis first. Treat the English analysis
-as the master analytical decision set. The Indonesian analysis must be
-a faithful Indonesian rendering of that same analysis, not a separate
-interpretation. Do not change sentiment, risk level, recommendation
-types, facts, numbers, actors, issues, or conclusions between languages.
+IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
+The Indonesian version is generated separately by a translation step.
+Do not produce an Indonesian analysis in this call.
 
 Use all relevant information.
 
@@ -2796,12 +3370,12 @@ ANALYSIS NOTES:
 """ + combined_notes
 
     final_result = await run_ai(
-        SYSTEM_PROMPT,
+        MASTER_SYSTEM_PROMPT,
         final_prompt,
         5000
     )
 
-    analysis = normalize_analysis(
+    analysis = await build_consistent_analysis(
         parse_ai_json(
             final_result
         )
@@ -2830,11 +3404,9 @@ async def analyze_transcript(
 Create the final professional video analysis from
 the following transcript.
 
-IMPORTANT: Produce ONE master analysis first. Treat the English analysis
-as the master analytical decision set. The Indonesian analysis must be
-a faithful Indonesian rendering of that same analysis, not a separate
-interpretation. Do not change sentiment, risk level, recommendation
-types, facts, numbers, actors, issues, or conclusions between languages.
+IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
+The Indonesian version is generated separately by a translation step.
+Do not produce an Indonesian analysis in this call.
 
 Use ALL relevant information.
 
@@ -2854,12 +3426,12 @@ TRANSCRIPT:
 """ + transcript_text
 
         result = await run_ai(
-            SYSTEM_PROMPT,
+            MASTER_SYSTEM_PROMPT,
             prompt,
             5000
         )
 
-        analysis = normalize_analysis(
+        analysis = await build_consistent_analysis(
             parse_ai_json(
                 result
             )
@@ -3308,7 +3880,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "8.0.0"
+            "9.1.0"
     }
 
 
@@ -3324,7 +3896,7 @@ async def health():
             "ok",
 
         "version":
-            "8.0.0"
+            "9.1.0"
     }
 
 
