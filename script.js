@@ -1,247 +1,85 @@
-/* ============================================================
-   AI VIDEO SUMMARIZER
-   SCRIPT.JS - STABLE V3
-   ============================================================ */
-
-
-/* ============================================================
-   CONFIGURATION
-   ============================================================ */
-
-const API_URL =
-    "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
-
-
-/* ============================================================
-   GLOBAL STATE
-   ============================================================ */
-
-let currentData = null;
-let currentAIRoot = null;
-let currentLanguage = "en";
-
-
-/* ============================================================
-   YOUTUBE URL VALIDATION
-   ============================================================ */
-
 function isValidYouTubeUrl(value) {
-
-    if (!value) {
-        return false;
-    }
-
+    if (!value) return false;
     try {
-
         const url = new URL(value.trim());
-
-        const hostname =
-            url.hostname.toLowerCase();
-
-        return (
+        const hostname = url.hostname.toLowerCase();
+        if (
             hostname === "youtube.com" ||
             hostname === "www.youtube.com" ||
             hostname === "m.youtube.com" ||
             hostname === "youtu.be" ||
             hostname === "www.youtu.be"
+        ) {
+            return true;
+        }
+        return false;
+    } catch (error) {
+        return false;
+    }
+}
+
+const API_URL =
+    "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
+
+let currentData = null;
+let currentAIRoot = null;
+let currentLanguage = "en";
+
+window.addEventListener("DOMContentLoaded", function () {
+
+    const analyzeButton =
+        document.getElementById("analyzeButton");
+
+    const videoUrl =
+        document.getElementById("videoUrl");
+
+    if (!analyzeButton) {
+        console.error("ANALYZE button not found.");
+        return;
+    }
+
+    analyzeButton.addEventListener(
+        "click",
+        analyzeVideo
+    );
+
+    if (videoUrl) {
+
+        videoUrl.addEventListener(
+            "keydown",
+            function (event) {
+
+                if (event.key === "Enter") {
+                    analyzeVideo();
+                }
+
+            }
         );
 
-    } catch (error) {
-
-        return false;
-
     }
 
-}
+});
 
-
-/*
- * Compatibility alias.
- *
- * Some older code may still call isYouTubeUrl().
- * Keep this alias so old references cannot break
- * the application.
- */
-
-function isYouTubeUrl(value) {
-
-    return isValidYouTubeUrl(value);
-
-}
-
-
-/* ============================================================
-   START APPLICATION
-   ============================================================ */
-
-window.addEventListener(
-    "DOMContentLoaded",
-    function () {
-
-        const analyzeButton =
-            document.getElementById(
-                "analyzeButton"
-            );
-
-        const videoUrl =
-            document.getElementById(
-                "videoUrl"
-            );
-
-        const aiResult =
-            document.getElementById(
-                "aiResult"
-            );
-
-
-        /*
-         * ANALYZE BUTTON
-         */
-
-        if (analyzeButton) {
-
-            analyzeButton.onclick =
-                function () {
-
-                    analyzeVideo();
-
-                };
-
-        } else {
-
-            console.error(
-                "ANALYZE button not found."
-            );
-
-        }
-
-
-        /*
-         * ENTER KEY
-         */
-
-        if (videoUrl) {
-
-            videoUrl.onkeydown =
-                function (event) {
-
-                    if (
-                        event.key === "Enter"
-                    ) {
-
-                        event.preventDefault();
-
-                        analyzeVideo();
-
-                    }
-
-                };
-
-        }
-
-
-        /*
-         * IMPORTANT:
-         *
-         * Language buttons are generated dynamically
-         * inside #aiResult.
-         *
-         * Therefore we DO NOT attach click handlers
-         * directly to EN/ID buttons.
-         *
-         * We use ONE event listener on #aiResult.
-         *
-         * This makes EN / ID switching stable.
-         */
-
-        if (aiResult) {
-
-            aiResult.onclick =
-                function (event) {
-
-                    const languageButton =
-                        event.target.closest(
-                            "[data-language]"
-                        );
-
-                    if (
-                        languageButton &&
-                        aiResult.contains(
-                            languageButton
-                        )
-                    ) {
-
-                        const language =
-                            languageButton.dataset.language;
-
-                        switchLanguage(
-                            language
-                        );
-
-                        return;
-
-                    }
-
-
-                    const pdfButton =
-                        event.target.closest(
-                            "[data-action='export-pdf']"
-                        );
-
-                    if (
-                        pdfButton &&
-                        aiResult.contains(
-                            pdfButton
-                        )
-                    ) {
-
-                        exportPDF();
-
-                    }
-
-                };
-
-        }
-
-    }
-);
-
-
-/* ============================================================
-   ANALYZE VIDEO
-   ============================================================ */
 
 async function analyzeVideo() {
 
     const videoUrlInput =
-        document.getElementById(
-            "videoUrl"
-        );
+        document.getElementById("videoUrl");
 
     const analyzeButton =
-        document.getElementById(
-            "analyzeButton"
-        );
+        document.getElementById("analyzeButton");
 
     const status =
-        document.getElementById(
-            "status"
-        );
+        document.getElementById("status");
 
     const videoInfo =
-        document.getElementById(
-            "videoInfo"
-        );
+        document.getElementById("videoInfo");
 
     const transcript =
-        document.getElementById(
-            "transcript"
-        );
+        document.getElementById("transcript");
 
     const aiResult =
-        document.getElementById(
-            "aiResult"
-        );
+        document.getElementById("aiResult");
 
 
     const url =
@@ -249,10 +87,6 @@ async function analyzeVideo() {
             ? videoUrlInput.value.trim()
             : "";
 
-
-    /* --------------------------------------------------------
-       VALIDATION
-       -------------------------------------------------------- */
 
     if (!url) {
 
@@ -267,7 +101,7 @@ async function analyzeVideo() {
     }
 
 
-    if (!isValidYouTubeUrl(url)) {
+    if (!isYouTubeUrl(url)) {
 
         setStatus(
             status,
@@ -280,21 +114,13 @@ async function analyzeVideo() {
     }
 
 
-    /* --------------------------------------------------------
-       LOADING
-       -------------------------------------------------------- */
+    analyzeButton.disabled = true;
 
-    if (analyzeButton) {
+    analyzeButton.dataset.oldText =
+        analyzeButton.textContent;
 
-        analyzeButton.disabled = true;
-
-        analyzeButton.dataset.oldText =
-            analyzeButton.textContent;
-
-        analyzeButton.textContent =
-            "ANALYZING...";
-
-    }
+    analyzeButton.textContent =
+        "ANALYZING...";
 
 
     setStatus(
@@ -306,22 +132,20 @@ async function analyzeVideo() {
 
     if (videoInfo) {
 
-        videoInfo.innerHTML = `
-            <div class="empty-state">
+        videoInfo.innerHTML =
+            `<div class="empty-state">
                 Loading video information...
-            </div>
-        `;
+            </div>`;
 
     }
 
 
     if (transcript) {
 
-        transcript.innerHTML = `
-            <div class="empty-state">
+        transcript.innerHTML =
+            `<div class="empty-state">
                 Loading transcript...
-            </div>
-        `;
+            </div>`;
 
     }
 
@@ -332,22 +156,6 @@ async function analyzeVideo() {
 
     }
 
-
-    /*
-     * Reset language.
-     *
-     * Every new analysis starts in EN.
-     */
-
-    currentLanguage = "en";
-
-    currentData = null;
-    currentAIRoot = null;
-
-
-    /* --------------------------------------------------------
-       API REQUEST
-       -------------------------------------------------------- */
 
     try {
 
@@ -363,7 +171,7 @@ async function analyzeVideo() {
                     },
 
                     body: JSON.stringify({
-                        url: url
+                        video_url: url
                     })
                 }
             );
@@ -407,10 +215,6 @@ async function analyzeVideo() {
         }
 
 
-        /* ----------------------------------------------------
-           SAVE RESPONSE
-           ---------------------------------------------------- */
-
         currentData =
             data;
 
@@ -426,63 +230,41 @@ async function analyzeVideo() {
                 data
             );
 
+            const serverMessage =
+                getErrorMessage(
+                    data,
+                    response.status
+                );
+
             throw new Error(
-                "AI analysis result was not found in server response."
+                serverMessage &&
+                serverMessage !==
+                    "Request failed (HTTP " +
+                    response.status +
+                    ")."
+                    ? serverMessage
+                    : "Server returned no AI analysis data."
             );
 
         }
 
-
-        /*
-         * Make sure EN exists.
-         *
-         * If EN is unavailable but ID exists,
-         * automatically use ID.
-         */
-
-        if (
-            currentAIRoot.en
-        ) {
-
-            currentLanguage = "en";
-
-        } else if (
-            currentAIRoot.id
-        ) {
-
-            currentLanguage = "id";
-
-        }
-
-
-        /* ----------------------------------------------------
-           RENDER VIDEO INFORMATION
-           ---------------------------------------------------- */
 
         renderVideoInfo(
             data
         );
 
 
-        /* ----------------------------------------------------
-           RENDER TRANSCRIPT
-           ---------------------------------------------------- */
-
         renderTranscript(
             data
         );
 
 
-        /* ----------------------------------------------------
-           RENDER AI
-           ---------------------------------------------------- */
+        renderAI(
+            getLanguageData(
+                currentAIRoot
+            )
+        );
 
-        renderAI();
-
-
-        /* ----------------------------------------------------
-           SUCCESS
-           ---------------------------------------------------- */
 
         setStatus(
             status,
@@ -523,48 +305,24 @@ async function analyzeVideo() {
 
     } finally {
 
-        if (analyzeButton) {
+        analyzeButton.disabled =
+            false;
 
-            analyzeButton.disabled =
-                false;
-
-            analyzeButton.textContent =
-                analyzeButton.dataset.oldText ||
-                "ANALYZE";
-
-        }
+        analyzeButton.textContent =
+            analyzeButton.dataset.oldText ||
+            "ANALYZE";
 
     }
 
 }
 
 
-/* ============================================================
-   FIND AI ROOT
-   ============================================================ */
-
 function findAIRoot(data) {
 
     if (!data) {
-
         return null;
-
     }
 
-
-    /*
-     * Main V2 response:
-     *
-     * {
-     *     status: "success",
-     *     video: {...},
-     *     transcript: {...},
-     *     ai: {
-     *         en: {...},
-     *         id: {...}
-     *     }
-     * }
-     */
 
     if (
         data.ai &&
@@ -591,19 +349,7 @@ function findAIRoot(data) {
         typeof data.result === "object"
     ) {
 
-        /*
-         * If result contains en/id directly,
-         * return result.
-         */
-
-        if (
-            data.result.en ||
-            data.result.id
-        ) {
-
-            return data.result;
-
-        }
+        return data.result;
 
     }
 
@@ -618,16 +364,10 @@ function findAIRoot(data) {
     }
 
 
-    /*
-     * Fallback:
-     * data itself may already be the AI object.
-     */
-
     if (
         data.summary ||
         data.key_points ||
-        data.sentiment ||
-        data.main_issue
+        data.sentiment
     ) {
 
         return data;
@@ -641,10 +381,6 @@ function findAIRoot(data) {
 
 }
 
-
-/* ============================================================
-   RECURSIVE AI FINDER
-   ============================================================ */
 
 function recursiveAI(
     object,
@@ -662,18 +398,12 @@ function recursiveAI(
 
 
     if (depth > 8) {
-
         return null;
-
     }
 
 
-    /*
-     * Language structure
-     */
-
     if (
-        object.en ||
+        object.en &&
         object.id
     ) {
 
@@ -682,16 +412,11 @@ function recursiveAI(
     }
 
 
-    /*
-     * AI language block
-     */
-
     if (
         object.summary ||
         object.key_points ||
         object.sentiment ||
-        object.main_issue ||
-        object.media_analysis
+        object.main_issue
     ) {
 
         return object;
@@ -704,14 +429,11 @@ function recursiveAI(
     ) {
 
         if (
-            !Object.prototype.hasOwnProperty.call(
-                object,
-                key
-            )
+            !Object.prototype
+                .hasOwnProperty
+                .call(object, key)
         ) {
-
             continue;
-
         }
 
 
@@ -732,9 +454,7 @@ function recursiveAI(
 
 
             if (result) {
-
                 return result;
-
             }
 
         }
@@ -747,10 +467,6 @@ function recursiveAI(
 }
 
 
-/* ============================================================
-   LANGUAGE DATA
-   ============================================================ */
-
 function getLanguageData(
     root
 ) {
@@ -760,17 +476,10 @@ function getLanguageData(
         typeof root !== "object"
     ) {
 
-        return null;
+        return root;
 
     }
 
-
-    /*
-     * Normal V2 structure:
-     *
-     * root.en
-     * root.id
-     */
 
     if (
         root.en ||
@@ -797,104 +506,54 @@ function getLanguageData(
         }
 
 
-        /*
-         * Fallback
-         */
-
         return (
             root.en ||
-            root.id ||
-            null
+            root.id
         );
 
     }
 
-
-    /*
-     * Root is already one language block.
-     */
 
     return root;
 
 }
 
 
-/* ============================================================
-   LANGUAGE SWITCH
-   ============================================================ */
-
-function switchLanguage(
-    language
+function field(
+    object,
+    keys
 ) {
 
-    /*
-     * Ignore invalid language.
-     */
-
     if (
-        language !== "en" &&
-        language !== "id"
+        !object ||
+        typeof object !== "object"
     ) {
 
-        return;
+        return null;
 
     }
 
 
-    /*
-     * Do nothing if there is no AI data.
-     */
-
-    if (!currentAIRoot) {
-
-        return;
-
-    }
-
-
-    /*
-     * Check requested language exists.
-     */
-
-    if (
-        !currentAIRoot[language]
+    for (
+        const key of keys
     ) {
 
-        console.warn(
-            "Language data not available:",
-            language
-        );
+        if (
+            object[key] !== undefined &&
+            object[key] !== null
+        ) {
 
-        return;
+            return object[key];
+
+        }
 
     }
 
 
-    /*
-     * THIS IS THE IMPORTANT PART.
-     *
-     * Only change state.
-     *
-     * DO NOT call API.
-     */
-
-    currentLanguage =
-        language;
-
-
-    /*
-     * Re-render using the already
-     * downloaded AI data.
-     */
-
-    renderAI();
+    return null;
 
 }
 
-
-/* ============================================================
-   VIDEO INFORMATION
-   ============================================================ */
 
 function renderVideoInfo(
     data
@@ -907,18 +566,18 @@ function renderVideoInfo(
 
 
     if (!box) {
-
         return;
-
     }
 
 
     const video =
-        data.video || {};
+        data.video ||
+        {};
 
 
     const transcript =
-        data.transcript || {};
+        data.transcript ||
+        {};
 
 
     const title =
@@ -935,32 +594,24 @@ function renderVideoInfo(
         "-";
 
 
-    const input =
-        document.getElementById(
-            "videoUrl"
-        );
-
-
-    const inputUrl =
-        input
-            ? input.value.trim()
-            : "";
-
-
     const id =
         video.id ||
         data.video_id ||
         extractYouTubeId(
             video.url ||
             data.url ||
-            inputUrl
+            document.getElementById(
+                "videoUrl"
+            ).value
         );
 
 
     const url =
         video.url ||
         data.url ||
-        inputUrl;
+        document.getElementById(
+            "videoUrl"
+        ).value;
 
 
     box.innerHTML = `
@@ -1033,11 +684,9 @@ function renderVideoInfo(
 }
 
 
-/* ============================================================
-   AI RESULT
-   ============================================================ */
-
-function renderAI() {
+function renderAI(
+    ai
+) {
 
     const box =
         document.getElementById(
@@ -1046,36 +695,8 @@ function renderAI() {
 
 
     if (!box) {
-
         return;
-
     }
-
-
-    if (
-        !currentAIRoot ||
-        typeof currentAIRoot !== "object"
-    ) {
-
-        box.innerHTML = `
-            <div class="error-box">
-                AI analysis data is empty.
-            </div>
-        `;
-
-        return;
-
-    }
-
-
-    /*
-     * Get ONLY the currently selected language.
-     */
-
-    const ai =
-        getLanguageData(
-            currentAIRoot
-        );
 
 
     if (
@@ -1083,11 +704,10 @@ function renderAI() {
         typeof ai !== "object"
     ) {
 
-        box.innerHTML = `
-            <div class="error-box">
+        box.innerHTML =
+            `<div class="error-box">
                 AI analysis data is empty.
-            </div>
-        `;
+            </div>`;
 
         return;
 
@@ -1197,17 +817,6 @@ function renderAI() {
         );
 
 
-    /*
-     * IMPORTANT:
-     *
-     * EN/ID buttons use data-language.
-     *
-     * We DO NOT attach individual listeners here.
-     *
-     * The single listener is already attached
-     * to #aiResult during DOMContentLoaded.
-     */
-
     box.innerHTML = `
 
         <div class="result-toolbar">
@@ -1221,13 +830,9 @@ function renderAI() {
                             ? "active"
                             : ""
                     }"
-                    type="button"
-                    data-language="en">
-
+                    type="button">
                     EN
-
                 </button>
-
 
                 <button
                     id="languageId"
@@ -1236,22 +841,15 @@ function renderAI() {
                             ? "active"
                             : ""
                     }"
-                    type="button"
-                    data-language="id">
-
+                    type="button">
                     ID
-
                 </button>
-
 
                 <button
                     id="exportPdfButton"
                     class="export-btn"
-                    type="button"
-                    data-action="export-pdf">
-
+                    type="button">
                     Export PDF
-
                 </button>
 
             </div>
@@ -1265,48 +863,39 @@ function renderAI() {
                 summary
             )}
 
-
             ${sentimentCard(
                 sentiment
             )}
-
 
             ${issueCard(
                 mainIssue
             )}
 
-
             ${keyPointCard(
                 keyPoints
             )}
-
 
             ${mediaCard(
                 mediaAnalysis
             )}
 
-
             ${riskCard(
                 risk
             )}
 
-
             ${recommendationCard(
                 recommendations
             )}
-
 
             ${textCard(
                 "Critical Analysis",
                 critical
             )}
 
-
             ${textCard(
                 "Implications",
                 implications
             )}
-
 
             ${textCard(
                 "Takeaways",
@@ -1320,58 +909,12 @@ function renderAI() {
 }
 
 
-/* ============================================================
-   FIELD
-   ============================================================ */
-
-function field(
-    object,
-    keys
-) {
-
-    if (
-        !object ||
-        typeof object !== "object"
-    ) {
-
-        return null;
-
-    }
-
-
-    for (
-        const key of keys
-    ) {
-
-        if (
-            object[key] !== undefined &&
-            object[key] !== null
-        ) {
-
-            return object[key];
-
-        }
-
-    }
-
-
-    return null;
-
-}
-
-
-/* ============================================================
-   SUMMARY CARD
-   ============================================================ */
-
 function summaryCard(
     value
 ) {
 
     if (!value) {
-
         return "";
-
     }
 
 
@@ -1401,18 +944,12 @@ function summaryCard(
 }
 
 
-/* ============================================================
-   SENTIMENT CARD
-   ============================================================ */
-
 function sentimentCard(
     value
 ) {
 
     if (!value) {
-
         return "";
-
     }
 
 
@@ -1504,18 +1041,12 @@ function sentimentCard(
 }
 
 
-/* ============================================================
-   ISSUE CARD
-   ============================================================ */
-
 function issueCard(
     value
 ) {
 
     if (!value) {
-
         return "";
-
     }
 
 
@@ -1544,18 +1075,12 @@ function issueCard(
 }
 
 
-/* ============================================================
-   KEY POINTS
-   ============================================================ */
-
 function keyPointCard(
     value
 ) {
 
     if (!value) {
-
         return "";
-
     }
 
 
@@ -1589,8 +1114,7 @@ function keyPointCard(
                             </li>
                         `
                     )
-                    .join("")
-                }
+                    .join("")}
 
             </ul>
 
@@ -1601,24 +1125,193 @@ function keyPointCard(
 }
 
 
-/* ============================================================
-   MEDIA ANALYSIS
-   ============================================================ */
+function renderActorEvidence(
+    actors,
+    evidence
+) {
+
+    const actorList =
+        Array.isArray(actors)
+            ? actors
+            : [];
+
+
+    const evidenceList =
+        Array.isArray(evidence)
+            ? evidence
+            : [];
+
+
+    if (!actorList.length) {
+        return "";
+    }
+
+
+    function actorKey(
+        value
+    ) {
+
+        return String(
+            value || ""
+        )
+        .trim()
+        .toLowerCase();
+
+    }
+
+
+    return `
+
+        <ul class="actor-evidence-list">
+
+            ${actorList
+                .map(
+                    (
+                        actor,
+                        index
+                    ) => {
+
+                        const actorText =
+                            typeof actor ===
+                                "object"
+                                ? (
+                                    actor.actor ||
+                                    actor.name ||
+                                    ""
+                                )
+                                : String(
+                                    actor || ""
+                                );
+
+
+                        const match =
+                            evidenceList.find(
+                                item =>
+                                    item &&
+                                    actorKey(
+                                        item.actor
+                                    ) ===
+                                    actorKey(
+                                        actorText
+                                    )
+                            ) ||
+                            evidenceList[index] ||
+                            null;
+
+
+                        let evidenceHTML =
+                            "";
+
+
+                        if (
+                            match &&
+                            typeof match ===
+                                "object"
+                        ) {
+
+                            const timestamp =
+                                match.evidence_timestamp ||
+                                match.timestamp ||
+                                "";
+
+
+                            const quote =
+                                match.evidence_quote ||
+                                match.quote ||
+                                "";
+
+
+                            if (
+                                timestamp ||
+                                quote
+                            ) {
+
+                                evidenceHTML = `
+
+                                    <div class="
+                                        actor-evidence
+                                    ">
+
+                                        <strong>
+                                            Evidence
+                                        </strong>
+
+                                        ${
+                                            timestamp
+                                                ? `
+                                                    <span class="
+                                                        actor-evidence-time
+                                                    ">
+                                                        [
+                                                        ${escapeHTML(
+                                                            timestamp
+                                                        )}
+                                                        ]
+                                                    </span>
+                                                `
+                                                : ""
+                                        }
+
+                                        ${
+                                            quote
+                                                ? `
+                                                    <span class="
+                                                        actor-evidence-quote
+                                                    ">
+                                                        ${escapeHTML(
+                                                            quote
+                                                        )}
+                                                    </span>
+                                                `
+                                                : ""
+                                        }
+
+                                    </div>
+
+                                `;
+
+                            }
+
+                        }
+
+
+                        return `
+
+                            <li class="actor-item">
+
+                                <div class="
+                                    actor-main
+                                ">
+                                    ${escapeHTML(
+                                        actorText
+                                    )}
+                                </div>
+
+                                ${evidenceHTML}
+
+                            </li>
+
+                        `;
+
+                    }
+                )
+                .join("")}
+
+        </ul>
+
+    `;
+
+}
+
 
 function mediaCard(
     value
 ) {
 
     if (!value) {
-
         return "";
-
     }
 
-
-    /*
-     * If media analysis is plain text.
-     */
 
     if (
         typeof value !== "object" ||
@@ -1698,7 +1391,8 @@ function mediaCard(
     ];
 
 
-    let html = "";
+    let html =
+        "";
 
 
     items.forEach(
@@ -1715,6 +1409,63 @@ function mediaCard(
                 valueFound !== null
             ) {
 
+                const fieldName =
+                    item[1].find(
+                        key =>
+                            Object.prototype
+                                .hasOwnProperty
+                                .call(
+                                    value,
+                                    key
+                                )
+                    );
+
+
+                let renderedValue =
+                    renderValue(
+                        valueFound
+                    );
+
+
+                if (
+                    fieldName ===
+                        "highlighted_actors" ||
+                    fieldName ===
+                        "actors" ||
+                    fieldName ===
+                        "actors_opd"
+                ) {
+
+                    const evidence =
+                        field(
+                            value,
+                            [
+                                "actor_evidence",
+                                "actors_evidence",
+                                "evidence_actors"
+                            ]
+                        ) || [];
+
+
+                    renderedValue =
+                        renderActorEvidence(
+                            valueFound,
+                            evidence
+                        );
+
+
+                    if (!renderedValue) {
+
+                        renderedValue =
+                            renderValue(
+                                valueFound
+                            );
+
+                    }
+
+                }
+
+
                 html += `
 
                     <div class="
@@ -1725,9 +1476,7 @@ function mediaCard(
                             ${item[0]}
                         </strong>
 
-                        ${renderValue(
-                            valueFound
-                        )}
+                        ${renderedValue}
 
                     </div>
 
@@ -1773,10 +1522,8 @@ function mediaCard(
     `;
 
 }
-
-
 /* ============================================================
-   COMMUNICATION RISK
+   RISK
    ============================================================ */
 
 function riskCard(
@@ -1784,9 +1531,7 @@ function riskCard(
 ) {
 
     if (!value) {
-
         return "";
-
     }
 
 
@@ -1968,163 +1713,411 @@ function recommendationCard(
     value
 ) {
 
-    if (!value) {
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
 
         return "";
 
     }
 
 
-    if (
-        Array.isArray(value)
-    ) {
+    const typeLabels = {
 
-        return `
+        amplification:
+            currentLanguage === "id"
+                ? "Amplifikasi"
+                : "Amplification",
 
-            <article class="
-                analysis-card
-                full-width
-            ">
+        amplification_media:
+            currentLanguage === "id"
+                ? "Amplifikasi Media"
+                : "Media Amplification",
 
-                <h3>
-                    Rekomendasi
-                </h3>
+        clarification:
+            currentLanguage === "id"
+                ? "Klarifikasi"
+                : "Clarification",
 
-                <ul>
+        counter_narrative:
+            currentLanguage === "id"
+                ? "Counter Narrative"
+                : "Counter Narrative",
 
-                    ${value
-                        .map(
-                            item => `
-                                <li>
-                                    ${renderValue(
-                                        item
-                                    )}
-                                </li>
-                            `
-                        )
-                        .join("")
-                    }
+        media_engagement:
+            currentLanguage === "id"
+                ? "Engagement Media"
+                : "Media Engagement",
 
-                </ul>
+        monitoring:
+            currentLanguage === "id"
+                ? "Monitoring Lanjutan"
+                : "Continued Monitoring",
 
-            </article>
+        continued_monitoring:
+            currentLanguage === "id"
+                ? "Monitoring Lanjutan"
+                : "Continued Monitoring",
 
-        `;
+        monitoring_lanjutan:
+            currentLanguage === "id"
+                ? "Monitoring Lanjutan"
+                : "Continued Monitoring",
 
-    }
+        follow_up_monitoring:
+            currentLanguage === "id"
+                ? "Monitoring Lanjutan"
+                : "Continued Monitoring"
 
-
-    if (
-        typeof value !== "object"
-    ) {
-
-        return `
-
-            <article class="
-                analysis-card
-                full-width
-            ">
-
-                <h3>
-                    Rekomendasi
-                </h3>
-
-                ${renderValue(
-                    value
-                )}
-
-            </article>
-
-        `;
-
-    }
+    };
 
 
-    const items = [
+    const labels =
+        currentLanguage === "id"
 
-        [
-            "Amplifikasi",
-            [
-                "amplification",
-                "amplifikasi"
-            ]
-        ],
+            ? {
+                type:
+                    "Tipe",
 
-        [
-            "Klarifikasi",
-            [
-                "clarification",
-                "klarifikasi"
-            ]
-        ],
+                action:
+                    "Tindakan",
 
-        [
-            "Counter Narrative",
-            [
-                "counter_narrative",
-                "counterNarrative"
-            ]
-        ],
+                reason:
+                    "Alasan",
 
-        [
-            "Engagement Media",
-            [
-                "media_engagement",
-                "engagement_media"
-            ]
-        ],
-
-        [
-            "Monitoring Lanjutan",
-            [
-                "continued_monitoring",
-                "monitoring_lanjutan",
-                "follow_up_monitoring"
-            ]
-        ]
-
-    ];
-
-
-    let html = "";
-
-
-    items.forEach(
-        function (item) {
-
-            const found =
-                field(
-                    value,
-                    item[1]
-                );
-
-
-            if (
-                found !== null
-            ) {
-
-                html += `
-
-                    <div class="
-                        recommendation-item
-                    ">
-
-                        <strong>
-                            ${item[0]}
-                        </strong>
-
-                        ${renderValue(
-                            found
-                        )}
-
-                    </div>
-
-                `;
-
+                recommendation:
+                    "Rekomendasi"
             }
 
+            : {
+                type:
+                    "Type",
+
+                action:
+                    "Action",
+
+                reason:
+                    "Reason",
+
+                recommendation:
+                    "Recommendation"
+            };
+
+
+    function normalizeType(
+        type
+    ) {
+
+        return String(
+            type === null ||
+            type === undefined
+                ? ""
+                : type
+        )
+            .trim()
+            .toLowerCase()
+            .replace(
+                /\s+/g,
+                "_"
+            )
+            .replace(
+                /-/g,
+                "_"
+            );
+
+    }
+
+
+    function renderRecommendationItem(
+        item
+    ) {
+
+        if (
+            !item ||
+            typeof item !== "object"
+        ) {
+
+            return "";
+
         }
-    );
+
+
+        const rawType =
+            item.type ||
+            item.Type ||
+            item.TYPE ||
+            "";
+
+
+        const type =
+            normalizeType(
+                rawType
+            );
+
+
+        const displayedType =
+            typeLabels[type] ||
+            String(
+                rawType || "-"
+            );
+
+
+        const action =
+            item.action ||
+            item.Action ||
+            item.ACTION ||
+            item.aksi ||
+            "";
+
+
+        const reason =
+            item.reason ||
+            item.Reason ||
+            item.REASON ||
+            item.alasan ||
+            "";
+
+
+        return `
+
+            <div class="
+                recommendation-item
+            ">
+
+                <div class="
+                    recommendation-field
+                ">
+
+                    <strong>
+                        ${escapeHTML(
+                            labels.type
+                        )}
+                    </strong>
+
+                    <span>
+                        ${escapeHTML(
+                            displayedType
+                        )}
+                    </span>
+
+                </div>
+
+
+                ${
+                    action
+                        ? `
+                            <div class="
+                                recommendation-field
+                            ">
+
+                                <strong>
+                                    ${escapeHTML(
+                                        labels.action
+                                    )}
+                                </strong>
+
+                                <span>
+                                    ${escapeHTML(
+                                        valueToPlainText(
+                                            action
+                                        )
+                                    )}
+                                </span>
+
+                            </div>
+                        `
+                        : ""
+                }
+
+
+                ${
+                    reason
+                        ? `
+                            <div class="
+                                recommendation-field
+                            ">
+
+                                <strong>
+                                    ${escapeHTML(
+                                        labels.reason
+                                    )}
+                                </strong>
+
+                                <span>
+                                    ${escapeHTML(
+                                        valueToPlainText(
+                                            reason
+                                        )
+                                    )}
+                                </span>
+
+                            </div>
+                        `
+                        : ""
+                }
+
+            </div>
+
+        `;
+
+    }
+
+
+    let html =
+        "";
+
+
+    if (
+        Array.isArray(
+            value
+        )
+    ) {
+
+        html =
+            value
+                .map(
+                    renderRecommendationItem
+                )
+                .join("");
+
+    } else if (
+        typeof value === "object"
+    ) {
+
+        html =
+            renderRecommendationItem(
+                value
+            );
+
+    }
+
+
+    if (!html) {
+
+        const legacyItems = [
+
+            [
+                "Amplifikasi",
+                [
+                    "amplification",
+                    "amplifikasi"
+                ]
+            ],
+
+            [
+                "Klarifikasi",
+                [
+                    "clarification",
+                    "klarifikasi"
+                ]
+            ],
+
+            [
+                "Counter Narrative",
+                [
+                    "counter_narrative",
+                    "counterNarrative"
+                ]
+            ],
+
+            [
+                "Engagement Media",
+                [
+                    "media_engagement",
+                    "engagement_media"
+                ]
+            ],
+
+            [
+                "Monitoring Lanjutan",
+                [
+                    "monitoring",
+                    "continued_monitoring",
+                    "monitoring_lanjutan",
+                    "follow_up_monitoring"
+                ]
+            ]
+
+        ];
+
+
+        legacyItems.forEach(
+            function (
+                item
+            ) {
+
+                const found =
+                    field(
+                        value,
+                        item[1]
+                    );
+
+
+                if (
+                    found !== null &&
+                    found !== undefined
+                ) {
+
+                    html += `
+
+                        <div class="
+                            recommendation-item
+                        ">
+
+                            <div class="
+                                recommendation-field
+                            ">
+
+                                <strong>
+                                    ${escapeHTML(
+                                        labels.recommendation
+                                    )}
+                                </strong>
+
+                                <span>
+                                    ${escapeHTML(
+                                        currentLanguage === "id"
+                                            ? item[0]
+                                            : (
+                                                item[0] ===
+                                                    "Amplifikasi"
+
+                                                    ? "Amplification"
+
+                                                    : item[0]
+                                            )
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <div class="
+                                recommendation-field
+                            ">
+
+                                <span>
+                                    ${escapeHTML(
+                                        valueToPlainText(
+                                            found
+                                        )
+                                    )}
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    `;
+
+                }
+
+            }
+        );
+
+    }
 
 
     if (!html) {
@@ -2145,8 +2138,11 @@ function recommendationCard(
         ">
 
             <h3>
-                Rekomendasi
+                ${escapeHTML(
+                    labels.recommendation
+                )}
             </h3>
+
 
             <div class="
                 recommendations
@@ -2173,9 +2169,7 @@ function textCard(
 ) {
 
     if (!value) {
-
         return "";
-
     }
 
 
@@ -2190,6 +2184,7 @@ function textCard(
                     title
                 )}
             </h3>
+
 
             ${renderValue(
                 value
@@ -2221,7 +2216,9 @@ function renderValue(
 
 
     if (
-        Array.isArray(value)
+        Array.isArray(
+            value
+        )
     ) {
 
         return `
@@ -2231,15 +2228,18 @@ function renderValue(
                 ${value
                     .map(
                         item => `
+
                             <li>
+
                                 ${renderValue(
                                     item
                                 )}
+
                             </li>
+
                         `
                     )
-                    .join("")
-                }
+                    .join("")}
 
             </ul>
 
@@ -2260,12 +2260,10 @@ function renderValue(
 
 
     const text =
-        String(value);
+        String(
+            value
+        );
 
-
-    /*
-     * Inference formatting.
-     */
 
     if (
         /^Inference:/i.test(
@@ -2275,7 +2273,9 @@ function renderValue(
 
         return `
 
-            <div class="inference">
+            <div class="
+                inference
+            ">
 
                 <span class="
                     inference-label
@@ -2284,6 +2284,7 @@ function renderValue(
                     Inference:
 
                 </span>
+
 
                 ${escapeHTML(
                     text.replace(
@@ -2310,6 +2311,79 @@ function renderValue(
 
 
 /* ============================================================
+   VALUE TO PLAIN TEXT
+   ============================================================ */
+
+function valueToPlainText(
+    value
+) {
+
+    if (
+        value === null ||
+        value === undefined
+    ) {
+
+        return "";
+
+    }
+
+
+    if (
+        Array.isArray(
+            value
+        )
+    ) {
+
+        return value
+            .map(
+                item =>
+                    valueToPlainText(
+                        item
+                    )
+            )
+            .join("\n");
+
+    }
+
+
+    if (
+        typeof value === "object"
+    ) {
+
+        return Object.entries(
+            value
+        )
+        .map(
+            function ([
+                key,
+                item
+            ]) {
+
+                return (
+                    formatLabel(
+                        key
+                    ) +
+                    ": " +
+                    valueToPlainText(
+                        item
+                    )
+                );
+
+            }
+        )
+        .join("\n");
+
+    }
+
+
+    return String(
+        value
+    );
+
+}
+
+
+/* ============================================================
    RENDER OBJECT
    ============================================================ */
 
@@ -2327,7 +2401,8 @@ function renderObject(
     }
 
 
-    let html = "";
+    let html =
+        "";
 
 
     Object.entries(
@@ -2351,6 +2426,7 @@ function renderObject(
                             )
                         )}
                     </strong>
+
 
                     ${renderValue(
                         value
@@ -2378,7 +2454,9 @@ function normalizeList(
 ) {
 
     if (
-        Array.isArray(value)
+        Array.isArray(
+            value
+        )
     ) {
 
         return value;
@@ -2399,7 +2477,9 @@ function normalizeList(
 
 
         if (
-            Array.isArray(list)
+            Array.isArray(
+                list
+            )
         ) {
 
             return list;
@@ -2414,7 +2494,9 @@ function normalizeList(
     ) {
 
         return value
-            .split("\n")
+            .split(
+                "\n"
+            )
             .map(
                 item =>
                     item
@@ -2424,12 +2506,16 @@ function normalizeList(
                         )
                         .trim()
             )
-            .filter(Boolean);
+            .filter(
+                Boolean
+            );
 
     }
 
 
-    return [value];
+    return [
+        value
+    ];
 
 }
 
@@ -2442,7 +2528,9 @@ function formatLabel(
     value
 ) {
 
-    return String(value)
+    return String(
+        value
+    )
         .replace(
             /_/g,
             " "
@@ -2453,7 +2541,9 @@ function formatLabel(
         )
         .replace(
             /\b\w/g,
-            function (char) {
+            function (
+                char
+            ) {
 
                 return char.toUpperCase();
 
@@ -2461,10 +2551,312 @@ function formatLabel(
         );
 
 }
+/* ============================================================
+   YOUTUBE URL HELPERS
+   ============================================================ */
+
+function isYouTubeUrl(
+    value
+) {
+
+    return isValidYouTubeUrl(
+        value
+    );
+
+}
+
+
+function extractYouTubeId(
+    value
+) {
+
+    if (!value) {
+        return "";
+    }
+
+
+    try {
+
+        const url =
+            new URL(
+                value.trim()
+            );
+
+
+        const hostname =
+            url.hostname.toLowerCase();
+
+
+        if (
+            hostname ===
+                "youtu.be" ||
+            hostname ===
+                "www.youtu.be"
+        ) {
+
+            return (
+                url.pathname
+                    .replace(
+                        /^\//,
+                        ""
+                    )
+                    .split(
+                        "/"
+                    )[0] ||
+                ""
+            );
+
+        }
+
+
+        if (
+            hostname ===
+                "youtube.com" ||
+            hostname ===
+                "www.youtube.com" ||
+            hostname ===
+                "m.youtube.com"
+        ) {
+
+            const watchId =
+                url.searchParams.get(
+                    "v"
+                );
+
+
+            if (watchId) {
+                return watchId;
+            }
+
+
+            const parts =
+                url.pathname
+                    .split("/")
+                    .filter(
+                        Boolean
+                    );
+
+
+            if (
+                parts[0] ===
+                    "shorts" &&
+                parts[1]
+            ) {
+
+                return parts[1];
+
+            }
+
+
+            if (
+                parts[0] ===
+                    "embed" &&
+                parts[1]
+            ) {
+
+                return parts[1];
+
+            }
+
+        }
+
+    } catch (
+        error
+    ) {
+
+        console.warn(
+            "Unable to extract YouTube ID.",
+            error
+        );
+
+    }
+
+
+    return "";
+
+}
 
 
 /* ============================================================
-   TRANSCRIPT
+   STATUS
+   ============================================================ */
+
+function setStatus(
+    element,
+    message,
+    type = ""
+) {
+
+    if (!element) {
+        return;
+    }
+
+
+    element.className =
+        "status";
+
+
+    if (type) {
+
+        element.classList.add(
+            type
+        );
+
+    }
+
+
+    element.textContent =
+        message || "";
+
+}
+
+
+/* ============================================================
+   ERROR HANDLING
+   ============================================================ */
+
+function getErrorMessage(
+    data,
+    status
+) {
+
+    if (!data) {
+
+        return (
+            "Request failed (HTTP " +
+            status +
+            ")."
+        );
+
+    }
+
+
+    if (
+        typeof data ===
+            "string"
+    ) {
+
+        return data;
+
+    }
+
+
+    const candidates = [
+
+        data.detail,
+
+        data.message,
+
+        data.error,
+
+        data.error_message,
+
+        data.reason,
+
+        data.status_message
+
+    ];
+
+
+    for (
+        const candidate of
+            candidates
+    ) {
+
+        if (
+            typeof candidate ===
+                "string" &&
+            candidate.trim()
+        ) {
+
+            return candidate.trim();
+
+        }
+
+
+        if (
+            candidate &&
+            typeof candidate ===
+                "object"
+        ) {
+
+            const nested =
+                candidate.message ||
+                candidate.detail ||
+                candidate.error;
+
+
+            if (
+                nested &&
+                typeof nested ===
+                    "string"
+            ) {
+
+                return nested;
+
+            }
+
+        }
+
+    }
+
+
+    return (
+        "Request failed (HTTP " +
+        status +
+        ")."
+    );
+
+}
+
+
+/* ============================================================
+   ESCAPE HTML
+   ============================================================ */
+
+function escapeHTML(
+    value
+) {
+
+    if (
+        value === null ||
+        value === undefined
+    ) {
+
+        return "";
+
+    }
+
+
+    return String(
+        value
+    )
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+        .replace(
+            /</g,
+            "&lt;"
+        )
+        .replace(
+            />/g,
+            "&gt;"
+        )
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+        .replace(
+            /'/g,
+            "&#039;"
+        );
+
+}
+
+
+/* ============================================================
+   TRANSCRIPT RENDERING
    ============================================================ */
 
 function renderTranscript(
@@ -2478,202 +2870,377 @@ function renderTranscript(
 
 
     if (!box) {
-
         return;
-
     }
 
 
-    const transcript =
-        data.transcript || {};
+    const transcriptObject =
+        data &&
+        data.transcript
+            ? data.transcript
+            : data || {};
 
 
     const segments =
-        transcript.transcript ||
-        transcript.segments ||
-        data.segments ||
+        transcriptObject.transcript ||
+        transcriptObject.segments ||
+        data.transcript_segments ||
         [];
 
 
-    /*
-     * Transcript returned as plain text.
-     */
-
     if (
-        typeof segments === "string"
+        !Array.isArray(
+            segments
+        ) ||
+        !segments.length
     ) {
 
-        box.innerHTML = `
-
-            <div class="
-                transcript-row
-            ">
-
-                <div class="
-                    transcript-time
-                ">
-
-                    00:00
-
-                </div>
-
-                <div class="
-                    transcript-text
-                ">
-
-                    ${escapeHTML(
-                        segments
-                    )}
-
-                </div>
-
-            </div>
-
-        `;
+        box.innerHTML =
+            `<div class="empty-state">
+                Transcript tidak tersedia.
+            </div>`;
 
         return;
 
     }
 
 
-    if (
-        !Array.isArray(segments) ||
-        segments.length === 0
-    ) {
+    box.innerHTML = `
 
-        box.innerHTML = `
-            <div class="empty-state">
-                Transcript unavailable.
-            </div>
-        `;
+        <div class="
+            transcript-list
+        ">
 
-        return;
+            ${segments
+                .map(
+                    function (
+                        segment
+                    ) {
 
-    }
-
-
-    box.innerHTML =
-        segments
-            .map(
-                function (
-                    segment,
-                    index
-                ) {
-
-                    const text =
-                        typeof segment === "string"
-                            ? segment
-                            : segment.text || "";
+                        const start =
+                            segment.start ??
+                            segment.timestamp ??
+                            segment.time ??
+                            0;
 
 
-                    const start =
-                        typeof segment === "object"
-                            ? segment.start
-                            : index * 2;
+                        const text =
+                            segment.text ||
+                            segment.content ||
+                            "";
 
 
-                    return `
-
-                        <div class="
-                            transcript-row
-                        ">
+                        return `
 
                             <div class="
-                                transcript-time
+                                transcript-row
                             ">
 
-                                ${formatTime(
-                                    start
-                                )}
+                                <span class="
+                                    transcript-time
+                                ">
+
+                                    ${escapeHTML(
+                                        formatTimestamp(
+                                            start
+                                        )
+                                    )}
+
+                                </span>
+
+
+                                <span class="
+                                    transcript-text
+                                ">
+
+                                    ${escapeHTML(
+                                        text
+                                    )}
+
+                                </span>
 
                             </div>
 
+                        `;
 
-                            <div class="
-                                transcript-text
-                            ">
+                    }
+                )
+                .join("")}
 
-                                ${escapeHTML(
-                                    text
-                                )}
+        </div>
 
-                            </div>
-
-                        </div>
-
-                    `;
-
-                }
-            )
-            .join("");
+    `;
 
 }
 
 
 /* ============================================================
-   FORMAT TIME
+   TIMESTAMP
    ============================================================ */
 
-function formatTime(
+function formatTimestamp(
     seconds
 ) {
 
-    seconds =
-        Math.floor(
-            Number(seconds) || 0
+    let totalSeconds =
+        Number(
+            seconds
+        );
+
+
+    if (
+        !Number.isFinite(
+            totalSeconds
+        )
+    ) {
+
+        totalSeconds =
+            0;
+
+    }
+
+
+    totalSeconds =
+        Math.max(
+            0,
+            Math.floor(
+                totalSeconds
+            )
         );
 
 
     const hours =
         Math.floor(
-            seconds / 3600
+            totalSeconds /
+            3600
         );
 
 
     const minutes =
         Math.floor(
-            (seconds % 3600) / 60
+            (
+                totalSeconds %
+                3600
+            ) /
+            60
         );
 
 
     const secs =
-        seconds % 60;
+        totalSeconds %
+        60;
 
 
     if (
         hours > 0
     ) {
 
-        return (
-            String(hours)
-                .padStart(2, "0") +
-            ":" +
-            String(minutes)
-                .padStart(2, "0") +
-            ":" +
-            String(secs)
-                .padStart(2, "0")
-        );
+        return [
+            String(
+                hours
+            ).padStart(
+                2,
+                "0"
+            ),
+
+            String(
+                minutes
+            ).padStart(
+                2,
+                "0"
+            ),
+
+            String(
+                secs
+            ).padStart(
+                2,
+                "0"
+            )
+
+        ].join(":");
 
     }
 
 
-    return (
-        String(minutes)
-            .padStart(2, "0") +
-        ":" +
-        String(secs)
-            .padStart(2, "0")
+    return [
+
+        String(
+            minutes
+        ).padStart(
+            2,
+            "0"
+        ),
+
+        String(
+            secs
+        ).padStart(
+            2,
+            "0"
+        )
+
+    ].join(":");
+
+}
+
+
+/* ============================================================
+   LANGUAGE SWITCHING
+   ============================================================ */
+
+document.addEventListener(
+    "click",
+    function (
+        event
+    ) {
+
+        const button =
+            event.target.closest(
+                "[data-language]"
+            );
+
+
+        if (!button) {
+            return;
+        }
+
+
+        const language =
+            button.dataset.language;
+
+
+        if (
+            language !== "en" &&
+            language !== "id"
+        ) {
+
+            return;
+
+        }
+
+
+        switchLanguage(
+            language
+        );
+
+    }
+);
+
+
+function switchLanguage(
+    language
+) {
+
+    if (
+        !currentAIRoot
+    ) {
+
+        return;
+
+    }
+
+
+    if (
+        language !== "en" &&
+        language !== "id"
+    ) {
+
+        return;
+
+    }
+
+
+    currentLanguage =
+        language;
+
+
+    const ai =
+        getLanguageData(
+            currentAIRoot
+        );
+
+
+    renderAI(
+        ai
     );
 
 }
 
 
 /* ============================================================
+   FALLBACK LANGUAGE BUTTON SUPPORT
+   ============================================================ */
+
+document.addEventListener(
+    "click",
+    function (
+        event
+    ) {
+
+        const target =
+            event.target;
+
+
+        if (
+            target &&
+            target.id ===
+                "languageEn"
+        ) {
+
+            switchLanguage(
+                "en"
+            );
+
+            return;
+
+        }
+
+
+        if (
+            target &&
+            target.id ===
+                "languageId"
+        ) {
+
+            switchLanguage(
+                "id"
+            );
+
+            return;
+
+        }
+
+    }
+);
+
+
+/* ============================================================
    EXPORT PDF
    ============================================================ */
 
-function exportPDF() {
+document.addEventListener(
+    "click",
+    function (
+        event
+    ) {
+
+        const button =
+            event.target.closest(
+                "#exportPdfButton"
+            );
+
+
+        if (!button) {
+            return;
+        }
+
+
+        exportPDF();
+
+    }
+);
+
+
+async function exportPDF() {
 
     if (
         !currentData ||
@@ -2681,7 +3248,7 @@ function exportPDF() {
     ) {
 
         alert(
-            "Please analyze a video first."
+            "Tidak ada hasil analisis untuk diekspor."
         );
 
         return;
@@ -2690,12 +3257,12 @@ function exportPDF() {
 
 
     if (
-        !window.jspdf ||
-        !window.jspdf.jsPDF
+        typeof window.jspdf ===
+            "undefined"
     ) {
 
         alert(
-            "PDF library is not available."
+            "PDF library belum tersedia. Silakan refresh halaman."
         );
 
         return;
@@ -2705,19 +3272,16 @@ function exportPDF() {
 
     const {
         jsPDF
-    } = window.jspdf;
+    } =
+        window.jspdf;
 
 
-    const pdf =
-        new jsPDF();
+    const doc =
+        new jsPDF({
+            unit: "mm",
+            format: "a4"
+        });
 
-
-    /*
-     * IMPORTANT:
-     *
-     * PDF uses the SAME language currently
-     * displayed on screen.
-     */
 
     const ai =
         getLanguageData(
@@ -2725,69 +3289,268 @@ function exportPDF() {
         );
 
 
-    const transcript =
+    const video =
+        currentData.video ||
+        {};
+
+
+    const transcriptObject =
         currentData.transcript ||
         {};
 
 
     const title =
-        transcript.title ||
-        currentData.video?.title ||
+        video.title ||
+        transcriptObject.title ||
         "AI Video Analysis";
 
 
-    let y = 18;
+    let y =
+        18;
 
 
-    pdf.setFontSize(
-        18
+    const margin =
+        15;
+
+
+    const pageWidth =
+        doc.internal.pageSize
+            .getWidth();
+
+
+    const usableWidth =
+        pageWidth -
+        margin * 2;
+
+
+    function addPageIfNeeded(
+        height = 8
+    ) {
+
+        const pageHeight =
+            doc.internal.pageSize
+                .getHeight();
+
+
+        if (
+            y + height >
+            pageHeight - 15
+        ) {
+
+            doc.addPage();
+
+            y = 18;
+
+        }
+
+    }
+
+
+    function addTitle(
+        text
+    ) {
+
+        addPageIfNeeded(
+            12
+        );
+
+
+        doc.setFontSize(
+            16
+        );
+
+
+        doc.setFont(
+            "helvetica",
+            "bold"
+        );
+
+
+        const lines =
+            doc.splitTextToSize(
+                String(
+                    text || ""
+                ),
+                usableWidth
+            );
+
+
+        doc.text(
+            lines,
+            margin,
+            y
+        );
+
+
+        y +=
+            lines.length *
+            7 +
+            5;
+
+    }
+
+
+    function addHeading(
+        text
+    ) {
+
+        addPageIfNeeded(
+            12
+        );
+
+
+        doc.setFontSize(
+            12
+        );
+
+
+        doc.setFont(
+            "helvetica",
+            "bold"
+        );
+
+
+        doc.text(
+            String(
+                text || ""
+            ),
+            margin,
+            y
+        );
+
+
+        y += 7;
+
+    }
+
+
+    function addText(
+        text,
+        size = 9
+    ) {
+
+        if (
+            text === null ||
+            text === undefined
+        ) {
+
+            return;
+
+        }
+
+
+        const plain =
+            valueToPlainText(
+                text
+            );
+
+
+        if (
+            !plain.trim()
+        ) {
+
+            return;
+
+        }
+
+
+        doc.setFontSize(
+            size
+        );
+
+
+        doc.setFont(
+            "helvetica",
+            "normal"
+        );
+
+
+        const lines =
+            doc.splitTextToSize(
+                plain,
+                usableWidth
+            );
+
+
+        const lineHeight =
+            size === 9
+                ? 4.8
+                : 5.5;
+
+
+        for (
+            const line of
+                lines
+        ) {
+
+            addPageIfNeeded(
+                lineHeight
+            );
+
+
+            doc.text(
+                line,
+                margin,
+                y
+            );
+
+
+            y +=
+                lineHeight;
+
+        }
+
+
+        y += 2;
+
+    }
+
+
+    addTitle(
+        "AI Video Analysis"
     );
 
 
-    pdf.setFont(
-        "helvetica",
-        "bold"
-    );
-
-
-    pdf.text(
-        "AI Video Summarizer",
-        15,
-        y
-    );
-
-
-    y += 8;
-
-
-    pdf.setFontSize(
+    addText(
+        title,
         11
     );
 
 
-    pdf.setFont(
-        "helvetica",
-        "normal"
+    addHeading(
+        "Video Information"
     );
 
 
-    const titleLines =
-        pdf.splitTextToSize(
-            String(title),
-            180
-        );
-
-
-    pdf.text(
-        titleLines,
-        15,
-        y
+    addText(
+        "Video ID: " +
+        (
+            video.id ||
+            extractYouTubeId(
+                video.url ||
+                ""
+            ) ||
+            "-"
+        )
     );
 
 
-    y +=
-        titleLines.length * 5 +
-        8;
+    addText(
+        "Language: " +
+        (
+            transcriptObject.language ||
+            "-"
+        )
+    );
+
+
+    addText(
+        "URL: " +
+        (
+            video.url ||
+            "-"
+        )
+    );
 
 
     const sections = [
@@ -2861,7 +3624,10 @@ function exportPDF() {
         ],
 
         [
-            "Rekomendasi",
+            currentLanguage === "id"
+                ? "Rekomendasi"
+                : "Recommendations",
+
             field(
                 ai,
                 [
@@ -2909,11 +3675,15 @@ function exportPDF() {
 
 
     sections.forEach(
-        function (section) {
+        function ([
+            heading,
+            content
+        ]) {
 
             if (
-                section[1] === null ||
-                section[1] === undefined
+                content === null ||
+                content === undefined ||
+                content === ""
             ) {
 
                 return;
@@ -2921,350 +3691,31 @@ function exportPDF() {
             }
 
 
-            if (
-                y > 270
-            ) {
-
-                pdf.addPage();
-
-                y = 18;
-
-            }
-
-
-            pdf.setFontSize(
-                12
+            addHeading(
+                heading
             );
 
 
-            pdf.setFont(
-                "helvetica",
-                "bold"
+            addText(
+                content
             );
-
-
-            pdf.text(
-                section[0],
-                15,
-                y
-            );
-
-
-            y += 6;
-
-
-            pdf.setFontSize(
-                9
-            );
-
-
-            pdf.setFont(
-                "helvetica",
-                "normal"
-            );
-
-
-            const lines =
-                pdf.splitTextToSize(
-                    valueToText(
-                        section[1]
-                    ),
-                    178
-                );
-
-
-            lines.forEach(
-                function (line) {
-
-                    if (
-                        y > 278
-                    ) {
-
-                        pdf.addPage();
-
-                        y = 18;
-
-                    }
-
-
-                    pdf.text(
-                        line,
-                        15,
-                        y
-                    );
-
-
-                    y += 4.5;
-
-                }
-            );
-
-
-            y += 5;
 
         }
     );
 
 
-    pdf.save(
-        sanitizeFileName(
+    const filename =
+        sanitizeFilename(
             title
         ) +
         "_" +
-        currentLanguage.toUpperCase() +
-        "_AI_Analysis.pdf"
+        currentLanguage +
+        "_AI_Analysis.pdf";
+
+
+    doc.save(
+        filename
     );
-
-}
-
-
-/* ============================================================
-   PDF TEXT
-   ============================================================ */
-
-function valueToText(
-    value
-) {
-
-    if (
-        value === null ||
-        value === undefined
-    ) {
-
-        return "";
-
-    }
-
-
-    if (
-        Array.isArray(value)
-    ) {
-
-        return value
-            .map(
-                item =>
-                    "• " +
-                    valueToText(
-                        item
-                    )
-            )
-            .join("\n");
-
-    }
-
-
-    if (
-        typeof value === "object"
-    ) {
-
-        return Object.entries(
-            value
-        )
-        .map(
-            function ([
-                key,
-                item
-            ]) {
-
-                return (
-                    formatLabel(key) +
-                    ": " +
-                    valueToText(item)
-                );
-
-            }
-        )
-        .join("\n");
-
-    }
-
-
-    return String(value);
-
-}
-
-
-/* ============================================================
-   STATUS
-   ============================================================ */
-
-function setStatus(
-    element,
-    message,
-    type
-) {
-
-    if (!element) {
-
-        return;
-
-    }
-
-
-    element.className =
-        type || "";
-
-
-    element.textContent =
-        message || "";
-
-}
-
-
-/* ============================================================
-   EXTRACT YOUTUBE ID
-   ============================================================ */
-
-function extractYouTubeId(
-    url
-) {
-
-    if (!url) {
-
-        return "";
-
-    }
-
-
-    try {
-
-        const parsed =
-            new URL(url);
-
-
-        const hostname =
-            parsed.hostname
-                .toLowerCase();
-
-
-        /*
-         * youtu.be/VIDEO_ID
-         */
-
-        if (
-            hostname === "youtu.be" ||
-            hostname === "www.youtu.be"
-        ) {
-
-            return parsed.pathname
-                .replace(
-                    /^\/+/,
-                    ""
-                )
-                .split("/")[0];
-
-        }
-
-
-        /*
-         * youtube.com/watch?v=VIDEO_ID
-         */
-
-        return (
-            parsed.searchParams
-                .get("v") ||
-            ""
-        );
-
-    } catch {
-
-        return "";
-
-    }
-
-}
-
-
-/* ============================================================
-   ERROR MESSAGE
-   ============================================================ */
-
-function getErrorMessage(
-    data,
-    status
-) {
-
-    if (
-        data &&
-        typeof data.detail ===
-            "string"
-    ) {
-
-        return data.detail;
-
-    }
-
-
-    if (
-        data &&
-        typeof data.error ===
-            "string"
-    ) {
-
-        return data.error;
-
-    }
-
-
-    if (
-        data &&
-        typeof data.message ===
-            "string"
-    ) {
-
-        return data.message;
-
-    }
-
-
-    return (
-        "Server error (" +
-        status +
-        ")."
-    );
-
-}
-
-
-/* ============================================================
-   ESCAPE HTML
-   ============================================================ */
-
-function escapeHTML(
-    value
-) {
-
-    if (
-        value === null ||
-        value === undefined
-    ) {
-
-        return "";
-
-    }
-
-
-    return String(value)
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-        .replace(
-            /</g,
-            "&lt;"
-        )
-        .replace(
-            />/g,
-            "&gt;"
-        )
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-        .replace(
-            /'/g,
-            "&#039;"
-        );
 
 }
 
@@ -3273,15 +3724,16 @@ function escapeHTML(
    SANITIZE FILE NAME
    ============================================================ */
 
-function sanitizeFileName(
-    name
+function sanitizeFilename(
+    value
 ) {
 
     return String(
-        name || "video"
+        value ||
+        "video"
     )
         .replace(
-            /[<>:"/\\|?*]+/g,
+            /[<>:"/\\|?*\x00-\x1F]/g,
             ""
         )
         .replace(
@@ -3290,7 +3742,82 @@ function sanitizeFileName(
         )
         .substring(
             0,
-            100
+            120
         );
 
 }
+
+
+/* ============================================================
+   INITIAL STATE
+   ============================================================ */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    function () {
+
+        const videoUrl =
+            document.getElementById(
+                "videoUrl"
+            );
+
+
+        if (videoUrl) {
+
+            videoUrl.focus();
+
+        }
+
+
+        const aiResult =
+            document.getElementById(
+                "aiResult"
+            );
+
+
+        if (aiResult) {
+
+            aiResult.addEventListener(
+                "click",
+                function (
+                    event
+                ) {
+
+                    const languageButton =
+                        event.target.closest(
+                            ".lang-btn"
+                        );
+
+
+                    if (
+                        !languageButton
+                    ) {
+
+                        return;
+
+                    }
+
+
+                    const language =
+                        languageButton.dataset
+                            .language;
+
+
+                    if (
+                        language === "en" ||
+                        language === "id"
+                    ) {
+
+                        switchLanguage(
+                            language
+                        );
+
+                    }
+
+                }
+            );
+
+        }
+
+    }
+);
