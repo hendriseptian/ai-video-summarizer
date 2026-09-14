@@ -1,101 +1,1150 @@
+/* ============================================================
+   AI VIDEO SUMMARIZER - PROFESSIONAL UI V8
+   ============================================================ */
+
 * {
     box-sizing: border-box;
 }
 
+html {
+    scroll-behavior: smooth;
+}
+
 body {
     margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f4f6f8;
-    color: #222;
+    padding: 0;
+
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Arial,
+        sans-serif;
+
+    background:
+        #f3f5f7;
+
+    color:
+        #172033;
+
+    line-height:
+        1.55;
 }
+
+
+/* ============================================================
+   CONTAINER
+   ============================================================ */
 
 .container {
     width: 100%;
-    max-width: 900px;
-    margin: auto;
-    padding: 30px 20px;
+    max-width: 1100px;
+
+    margin: 0 auto;
+
+    padding:
+        45px 24px 60px;
 }
+
+
+/* ============================================================
+   HEADER
+   ============================================================ */
 
 header {
     text-align: center;
-    margin-bottom: 30px;
+
+    margin-bottom:
+        32px;
 }
 
 header h1 {
-    margin-bottom: 10px;
+    margin:
+        0 0 8px;
+
+    font-size:
+        36px;
+
+    font-weight:
+        750;
+
+    letter-spacing:
+        -1px;
+
+    color:
+        #111827;
 }
 
 header p {
-    color: #666;
+    margin:
+        0;
+
+    color:
+        #667085;
+
+    font-size:
+        15px;
 }
+
+
+/* ============================================================
+   MAIN CARD
+   ============================================================ */
 
 .card,
 .result-card,
 .transcript-card {
-    background: white;
-    padding: 25px;
-    margin-bottom: 20px;
-    border-radius: 12px;
-    box-shadow: 0 3px 15px rgba(0, 0, 0, 0.08);
+    background:
+        #ffffff;
+
+    border:
+        1px solid #e5e7eb;
+
+    border-radius:
+        16px;
+
+    padding:
+        26px;
+
+    margin-bottom:
+        20px;
+
+    box-shadow:
+        0 4px 20px rgba(15, 23, 42, 0.05);
 }
 
-label {
-    display: block;
-    font-weight: bold;
-    margin-bottom: 10px;
+
+/* ============================================================
+   INPUT AREA
+   ============================================================ */
+
+.card label {
+    display:
+        block;
+
+    margin-bottom:
+        9px;
+
+    font-size:
+        14px;
+
+    font-weight:
+        700;
+
+    color:
+        #1f2937;
 }
 
-input {
-    width: 100%;
-    padding: 14px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    font-size: 16px;
-    margin-bottom: 15px;
+#videoUrl {
+    width:
+        100%;
+
+    height:
+        50px;
+
+    padding:
+        0 15px;
+
+    border:
+        1px solid #d0d5dd;
+
+    border-radius:
+        10px;
+
+    background:
+        #ffffff;
+
+    color:
+        #111827;
+
+    font-size:
+        14px;
+
+    outline:
+        none;
+
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
 }
 
-button {
-    width: 100%;
-    padding: 14px;
-    border: none;
-    border-radius: 8px;
-    background: #111;
-    color: white;
-    font-size: 16px;
-    font-weight: bold;
-    cursor: pointer;
+#videoUrl:focus {
+    border-color:
+        #111827;
+
+    box-shadow:
+        0 0 0 3px rgba(17, 24, 39, 0.08);
 }
 
-button:hover {
-    opacity: 0.85;
+
+/* ============================================================
+   ANALYZE BUTTON
+   ============================================================ */
+
+#analyzeButton {
+    width:
+        100%;
+
+    height:
+        48px;
+
+    margin-top:
+        14px;
+
+    border:
+        none;
+
+    border-radius:
+        10px;
+
+    background:
+        #111827;
+
+    color:
+        #ffffff;
+
+    font-size:
+        14px;
+
+    font-weight:
+        750;
+
+    letter-spacing:
+        0.3px;
+
+    cursor:
+        pointer;
+
+    transition:
+        transform 0.15s,
+        opacity 0.15s,
+        box-shadow 0.15s;
 }
+
+#analyzeButton:hover {
+    opacity:
+        0.92;
+
+    box-shadow:
+        0 5px 15px rgba(17, 24, 39, 0.15);
+}
+
+#analyzeButton:active {
+    transform:
+        translateY(1px);
+}
+
+#analyzeButton:disabled {
+    cursor:
+        not-allowed;
+
+    opacity:
+        0.55;
+}
+
+
+/* ============================================================
+   STATUS
+   ============================================================ */
 
 #status {
-    margin-top: 15px;
-    text-align: center;
+    min-height:
+        22px;
+
+    margin-top:
+        11px;
+
+    text-align:
+        center;
+
+    font-size:
+        13px;
+
+    font-weight:
+        500;
 }
 
-.result-card,
+.status-loading {
+    color:
+        #475467;
+}
+
+.status-success {
+    color:
+        #087443;
+}
+
+.status-error {
+    color:
+        #b42318;
+}
+
+
+/* ============================================================
+   CARD HEADINGS
+   ============================================================ */
+
+.result-card > h2,
+.transcript-card > h2 {
+    margin:
+        0 0 20px;
+
+    font-size:
+        21px;
+
+    font-weight:
+        750;
+
+    color:
+        #111827;
+}
+
+
+/* ============================================================
+   VIDEO INFORMATION
+   ============================================================ */
+
+.video-info-grid {
+    display:
+        grid;
+
+    grid-template-columns:
+        repeat(3, 1fr);
+
+    gap:
+        12px;
+}
+
+.info-item {
+    min-width:
+        0;
+
+    padding:
+        15px;
+
+    background:
+        #f8fafc;
+
+    border:
+        1px solid #eaecf0;
+
+    border-radius:
+        10px;
+}
+
+.info-label {
+    display:
+        block;
+
+    margin-bottom:
+        5px;
+
+    color:
+        #667085;
+
+    font-size:
+        10px;
+
+    font-weight:
+        750;
+
+    letter-spacing:
+        0.6px;
+}
+
+.info-value {
+    display:
+        block;
+
+    color:
+        #101828;
+
+    font-size:
+        13px;
+
+    font-weight:
+        600;
+
+    overflow-wrap:
+        anywhere;
+}
+
+.info-hash {
+    font-family:
+        Consolas,
+        "Courier New",
+        monospace;
+
+    font-size:
+        10px;
+
+    color:
+        #667085;
+}
+
+
+/* ============================================================
+   LANGUAGE SELECTOR
+   ============================================================ */
+
+#languageSelectorContainer {
+    margin-top:
+        18px;
+
+    padding-top:
+        18px;
+
+    border-top:
+        1px solid #eaecf0;
+}
+
+.language-selector-wrapper {
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        space-between;
+
+    gap:
+        15px;
+}
+
+.language-selector-wrapper label {
+    font-size:
+        12px;
+
+    font-weight:
+        750;
+
+    letter-spacing:
+        0.4px;
+
+    color:
+        #344054;
+}
+
+#languageSelector {
+    min-width:
+        170px;
+
+    height:
+        38px;
+
+    padding:
+        0 10px;
+
+    border:
+        1px solid #d0d5dd;
+
+    border-radius:
+        8px;
+
+    background:
+        #ffffff;
+
+    color:
+        #101828;
+
+    font-size:
+        13px;
+
+    cursor:
+        pointer;
+}
+
+
+/* ============================================================
+   PROFESSIONAL ANALYSIS
+   ============================================================ */
+
+.professional-analysis {
+    background:
+        #ffffff;
+
+    border:
+        1px solid #e5e7eb;
+
+    border-radius:
+        16px;
+
+    margin-bottom:
+        20px;
+
+    padding:
+        28px;
+
+    box-shadow:
+        0 4px 20px rgba(15, 23, 42, 0.05);
+}
+
+
+/* ============================================================
+   ANALYSIS HEADER
+   ============================================================ */
+
+.analysis-header {
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        space-between;
+
+    gap:
+        20px;
+
+    padding-bottom:
+        20px;
+
+    margin-bottom:
+        24px;
+
+    border-bottom:
+        1px solid #eaecf0;
+}
+
+.analysis-header h2 {
+    margin:
+        0;
+
+    font-size:
+        21px;
+
+    font-weight:
+        750;
+
+    color:
+        #111827;
+}
+
+.analysis-language {
+    margin:
+        4px 0 0;
+
+    font-size:
+        12px;
+
+    color:
+        #667085;
+}
+
+
+/* ============================================================
+   PDF BUTTON
+   ============================================================ */
+
+.pdf-button {
+    flex-shrink:
+        0;
+
+    height:
+        40px;
+
+    padding:
+        0 18px;
+
+    border:
+        none;
+
+    border-radius:
+        8px;
+
+    background:
+        #111827;
+
+    color:
+        #ffffff;
+
+    font-size:
+        11px;
+
+    font-weight:
+        750;
+
+    letter-spacing:
+        0.4px;
+
+    cursor:
+        pointer;
+
+    transition:
+        opacity 0.2s,
+        transform 0.15s;
+}
+
+.pdf-button:hover {
+    opacity:
+        0.9;
+}
+
+.pdf-button:active {
+    transform:
+        translateY(1px);
+}
+
+.pdf-button:disabled {
+    opacity:
+        0.5;
+
+    cursor:
+        not-allowed;
+}
+
+
+/* ============================================================
+   ANALYSIS SECTION
+   ============================================================ */
+
+.analysis-section {
+    margin-bottom:
+        30px;
+}
+
+.analysis-section:last-child {
+    margin-bottom:
+        0;
+}
+
+.analysis-section h3 {
+    margin:
+        0 0 12px;
+
+    font-size:
+        13px;
+
+    font-weight:
+        800;
+
+    letter-spacing:
+        0.7px;
+
+    color:
+        #344054;
+
+    padding-bottom:
+        8px;
+
+    border-bottom:
+        1px solid #eaecf0;
+}
+
+
+/* ============================================================
+   SUMMARY
+   ============================================================ */
+
+.summary-content {
+    color:
+        #344054;
+
+    font-size:
+        14px;
+
+    line-height:
+        1.7;
+}
+
+.summary-content p {
+    margin:
+        0 0 10px;
+}
+
+.summary-content p:last-child {
+    margin-bottom:
+        0;
+}
+
+
+/* ============================================================
+   NUMBERED ANALYSIS
+   ============================================================ */
+
+.numbered-list {
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    gap:
+        10px;
+}
+
+.analysis-item {
+    display:
+        grid;
+
+    grid-template-columns:
+        38px 1fr;
+
+    gap:
+        12px;
+
+    padding:
+        13px 14px;
+
+    background:
+        #f8fafc;
+
+    border:
+        1px solid #eaecf0;
+
+    border-radius:
+        9px;
+}
+
+.analysis-number {
+    font-family:
+        Consolas,
+        "Courier New",
+        monospace;
+
+    font-size:
+        12px;
+
+    font-weight:
+        750;
+
+    color:
+        #667085;
+
+    padding-top:
+        2px;
+}
+
+.analysis-text {
+    min-width:
+        0;
+
+    color:
+        #344054;
+
+    font-size:
+        13px;
+
+    line-height:
+        1.65;
+}
+
+.analysis-text p {
+    margin:
+        0 0 7px;
+}
+
+.analysis-text p:last-child {
+    margin-bottom:
+        0;
+}
+
+
+/* ============================================================
+   TAKEAWAYS
+   ============================================================ */
+
+.takeaway-list {
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    gap:
+        8px;
+}
+
+.takeaway-item {
+    display:
+        flex;
+
+    align-items:
+        flex-start;
+
+    gap:
+        10px;
+
+    padding:
+        11px 13px;
+
+    background:
+        #f8fafc;
+
+    border:
+        1px solid #eaecf0;
+
+    border-radius:
+        8px;
+
+    color:
+        #344054;
+
+    font-size:
+        13px;
+
+    line-height:
+        1.6;
+}
+
+.takeaway-marker {
+    flex-shrink:
+        0;
+
+    font-size:
+        18px;
+
+    line-height:
+        1;
+
+    color:
+        #667085;
+}
+
+
+/* ============================================================
+   TRANSCRIPT CARD
+   ============================================================ */
+
 .transcript-card {
-    display: block;
+    padding:
+        26px;
 }
 
-#videoInfo {
-    line-height: 1.6;
+.transcript-toolbar {
+    display:
+        flex;
+
+    justify-content:
+        space-between;
+
+    align-items:
+        center;
+
+    margin-bottom:
+        8px;
+
+    color:
+        #667085;
+
+    font-size:
+        11px;
 }
 
-#transcript {
-    background: #f7f7f7;
-    padding: 15px;
-    border-radius: 8px;
-    white-space: pre-wrap;
-    line-height: 1.6;
-    max-height: 500px;
-    overflow-y: auto;
+
+/* ============================================================
+   TRANSCRIPT SCROLL
+   ============================================================ */
+
+.transcript-scroll {
+    max-height:
+        550px;
+
+    overflow-y:
+        auto;
+
+    border:
+        1px solid #eaecf0;
+
+    border-radius:
+        10px;
+
+    background:
+        #fafbfc;
+
+    padding:
+        6px 0;
 }
+
+
+/* ============================================================
+   TRANSCRIPT ROW
+   ============================================================ */
+
+.transcript-row {
+    display:
+        grid;
+
+    grid-template-columns:
+        55px 1fr;
+
+    gap:
+        12px;
+
+    align-items:
+        start;
+
+    padding:
+        5px 12px;
+
+    border-bottom:
+        1px solid #f0f2f4;
+
+    transition:
+        background 0.15s;
+}
+
+.transcript-row:last-child {
+    border-bottom:
+        none;
+}
+
+.transcript-row:hover {
+    background:
+        #f2f4f7;
+}
+
+
+/* ============================================================
+   TIMESTAMP
+   ============================================================ */
+
+.transcript-time {
+    font-family:
+        Consolas,
+        "Courier New",
+        monospace;
+
+    font-size:
+        11px;
+
+    font-weight:
+        650;
+
+    color:
+        #667085;
+
+    line-height:
+        1.5;
+
+    white-space:
+        nowrap;
+}
+
+
+/* ============================================================
+   TRANSCRIPT TEXT
+   ============================================================ */
+
+.transcript-text {
+    color:
+        #344054;
+
+    font-size:
+        12px;
+
+    line-height:
+        1.5;
+
+    word-break:
+        break-word;
+}
+
+
+/* ============================================================
+   SCROLLBAR
+   ============================================================ */
+
+.transcript-scroll::-webkit-scrollbar {
+    width:
+        7px;
+}
+
+.transcript-scroll::-webkit-scrollbar-track {
+    background:
+        transparent;
+}
+
+.transcript-scroll::-webkit-scrollbar-thumb {
+    background:
+        #d0d5dd;
+
+    border-radius:
+        10px;
+}
+
+.transcript-scroll::-webkit-scrollbar-thumb:hover {
+    background:
+        #98a2b3;
+}
+
+
+/* ============================================================
+   EMPTY / ERROR
+   ============================================================ */
+
+.empty-analysis {
+    color:
+        #98a2b3;
+
+    font-size:
+        13px;
+}
+
+.error-result {
+    padding:
+        15px;
+
+    border:
+        1px solid #fecdca;
+
+    border-radius:
+        9px;
+
+    background:
+        #fef3f2;
+
+    color:
+        #b42318;
+}
+
+.error-result strong {
+    display:
+        block;
+
+    margin-bottom:
+        5px;
+}
+
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
 
 footer {
-    text-align: center;
-    color: #777;
-    margin-top: 30px;
+    text-align:
+        center;
+
+    padding-top:
+        10px;
+
+    color:
+        #98a2b3;
+
+    font-size:
+        11px;
+}
+
+
+/* ============================================================
+   MOBILE
+   ============================================================ */
+
+@media (
+    max-width: 800px
+) {
+
+    .container {
+        padding:
+            30px 15px 40px;
+    }
+
+
+    header h1 {
+        font-size:
+            28px;
+    }
+
+
+    .card,
+    .result-card,
+    .transcript-card,
+    .professional-analysis {
+        padding:
+            20px;
+
+        border-radius:
+            13px;
+    }
+
+
+    .video-info-grid {
+        grid-template-columns:
+            repeat(2, 1fr);
+    }
+
+
+    .analysis-header {
+        align-items:
+            flex-start;
+
+        flex-direction:
+            column;
+    }
+
+
+    .pdf-button {
+        width:
+            100%;
+    }
+
+
+    .language-selector-wrapper {
+        align-items:
+            stretch;
+
+        flex-direction:
+            column;
+    }
+
+
+    #languageSelector {
+        width:
+            100%;
+    }
+
+}
+
+
+/* ============================================================
+   SMALL MOBILE
+   ============================================================ */
+
+@media (
+    max-width: 480px
+) {
+
+    .video-info-grid {
+        grid-template-columns:
+            1fr;
+    }
+
+
+    .analysis-item {
+        grid-template-columns:
+            30px 1fr;
+
+        gap:
+            8px;
+
+        padding:
+            11px;
+    }
+
+
+    .transcript-row {
+        grid-template-columns:
+            48px 1fr;
+
+        gap:
+            8px;
+
+        padding:
+            5px 9px;
+    }
+
+
+    .transcript-time {
+        font-size:
+            10px;
+    }
+
+
+    .transcript-text {
+        font-size:
+            11px;
+    }
 }
