@@ -377,8 +377,17 @@ async def get_transcript(
     url: str
 ) -> tuple[list[dict], dict]:
 
-    payload = {
-        "url": normalize_youtube_url(url)
+    video_id = extract_video_id(url)
+
+    if not video_id:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid YouTube URL."
+        )
+
+    params = {
+        "video_url": video_id
     }
 
     try:
@@ -387,32 +396,72 @@ async def get_transcript(
             timeout=60
         ) as client:
 
-            response = await client.post(
+            response = await client.get(
                 TRANSCRIPT_API_URL,
-                json=payload
+                params=params
             )
 
-            response.raise_for_status()
+            # ------------------------------------------------
+            # HANDLE API ERROR
+            # ------------------------------------------------
+
+            if response.status_code != 200:
+
+                try:
+                    error_data = response.json()
+
+                except Exception:
+                    error_data = {}
+
+                error_message = (
+                    error_data
+                    .get("error", {})
+                    .get("message", "")
+                )
+
+                if not error_message:
+
+                    error_message = (
+                        response.text
+                        or "Failed to retrieve transcript."
+                    )
+
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        f"FreeTranscriptAPI "
+                        f"HTTP {response.status_code}: "
+                        f"{error_message}"
+                    )
+                )
 
             data = response.json()
+
+    except HTTPException:
+        raise
 
     except Exception as exc:
 
         raise HTTPException(
             status_code=502,
             detail=(
-                "Failed to retrieve transcript: "
-                f"{str(exc)}"
+                "Transcript API request failed: "
+                f"{type(exc).__name__}: {str(exc)}"
             )
         )
 
-    transcript = normalize_transcript(data)
+    transcript = normalize_transcript(
+        data
+    )
 
     if not transcript:
 
         raise HTTPException(
             status_code=404,
-            detail="Transcript not found for this video."
+            detail=(
+                "Transcript tidak ditemukan "
+                "atau video tidak memiliki caption."
+            )
         )
 
     return transcript, data
