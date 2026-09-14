@@ -1570,6 +1570,4 @@ async def analyze(
 # CLOUDFLARE ASGI
 # ============================================================
 
-application = asgi(
-    app
-)
+Default = asgi.entrypoint(app)
