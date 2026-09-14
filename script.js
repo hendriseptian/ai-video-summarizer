@@ -1511,6 +1511,704 @@ function renderAnalysis(
     }
 }
 
+/* ============================================================
+   LOAD JSPDF
+   ============================================================ */
+
+function loadJsPDF() {
+
+    return new Promise(
+        (resolve, reject) => {
+
+            if (
+                window.jspdf &&
+                window.jspdf.jsPDF
+            ) {
+
+                resolve();
+
+                return;
+            }
+
+
+            const existing =
+                document.getElementById(
+                    "jspdfLibrary"
+                );
+
+
+            if (existing) {
+
+                existing.addEventListener(
+                    "load",
+                    () => resolve()
+                );
+
+                existing.addEventListener(
+                    "error",
+                    () =>
+                        reject(
+                            new Error(
+                                "Failed to load jsPDF."
+                            )
+                        )
+                );
+
+                return;
+            }
+
+
+            const script =
+                document.createElement(
+                    "script"
+                );
+
+
+            script.id =
+                "jspdfLibrary";
+
+
+            script.src =
+                "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+
+
+            script.onload =
+                () => {
+
+                    if (
+                        window.jspdf &&
+                        window.jspdf.jsPDF
+                    ) {
+
+                        resolve();
+
+                    } else {
+
+                        reject(
+                            new Error(
+                                "jsPDF loaded but is unavailable."
+                            )
+                        );
+                    }
+                };
+
+
+            script.onerror =
+                () => {
+
+                    reject(
+                        new Error(
+                            "Unable to load jsPDF library."
+                        )
+                    );
+                };
+
+
+            document.head.appendChild(
+                script
+            );
+        }
+    );
+}
+
+
+/* ============================================================
+   PDF SECTION TITLE
+   ============================================================ */
+
+function pdfSectionTitle(
+    doc,
+    title,
+    x,
+    y
+) {
+
+    y =
+        pdfEnsureSpace(
+            doc,
+            y,
+            15
+        );
+
+
+    doc.setFont(
+        "helvetica",
+        "bold"
+    );
+
+
+    doc.setFontSize(
+        11
+    );
+
+
+    doc.text(
+        String(title),
+        x,
+        y
+    );
+
+
+    y += 7;
+
+
+    return y;
+}
+
+
+/* ============================================================
+   PDF INFO ROW
+   ============================================================ */
+
+function pdfInfoRow(
+    doc,
+    label,
+    value,
+    x,
+    y,
+    width
+) {
+
+    const labelWidth =
+        45;
+
+
+    doc.setFont(
+        "helvetica",
+        "bold"
+    );
+
+
+    doc.setFontSize(
+        8.5
+    );
+
+
+    doc.text(
+        String(label),
+        x,
+        y
+    );
+
+
+    doc.setFont(
+        "helvetica",
+        "normal"
+    );
+
+
+    const valueLines =
+        doc.splitTextToSize(
+            String(value || "-"),
+            width - labelWidth
+        );
+
+
+    doc.text(
+        valueLines,
+        x + labelWidth,
+        y
+    );
+
+
+    y +=
+        Math.max(
+            5,
+            valueLines.length * 4
+        );
+
+
+    return y;
+}
+
+
+/* ============================================================
+   PDF PARAGRAPH
+   ============================================================ */
+
+function pdfParagraph(
+    doc,
+    text,
+    x,
+    y,
+    width
+) {
+
+    const value =
+        normalizeText(
+            text
+        );
+
+
+    if (!value) {
+
+        return y;
+    }
+
+
+    doc.setFont(
+        "helvetica",
+        "normal"
+    );
+
+
+    doc.setFontSize(
+        9
+    );
+
+
+    const paragraphs =
+        value.split(
+            /\n{2,}/
+        );
+
+
+    for (
+        const paragraph of paragraphs
+    ) {
+
+        const lines =
+            doc.splitTextToSize(
+                paragraph.trim(),
+                width
+            );
+
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                lines.length * 4.5 + 3
+            );
+
+
+        doc.text(
+            lines,
+            x,
+            y
+        );
+
+
+        y +=
+            lines.length * 4.5 +
+            3;
+    }
+
+
+    return y;
+}
+
+
+/* ============================================================
+   PDF NUMBERED SECTION
+   ============================================================ */
+
+function pdfNumberedSection(
+    doc,
+    items,
+    x,
+    y,
+    width
+) {
+
+    if (
+        !items ||
+        items.length === 0
+    ) {
+
+        return pdfParagraph(
+            doc,
+            "No information available.",
+            x,
+            y,
+            width
+        );
+    }
+
+
+    for (
+        let i = 0;
+        i < items.length;
+        i++
+    ) {
+
+        const item =
+            normalizeText(
+                items[i]
+            );
+
+
+        if (!item) {
+            continue;
+        }
+
+
+        doc.setFont(
+            "helvetica",
+            "bold"
+        );
+
+
+        doc.setFontSize(
+            9
+        );
+
+
+        const number =
+            `${String(
+                i + 1
+            ).padStart(
+                2,
+                "0"
+            )}.`;
+
+
+        const textWidth =
+            width - 10;
+
+
+        const lines =
+            doc.splitTextToSize(
+                item,
+                textWidth
+            );
+
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                lines.length * 4.5 + 5
+            );
+
+
+        doc.text(
+            number,
+            x,
+            y
+        );
+
+
+        doc.setFont(
+            "helvetica",
+            "normal"
+        );
+
+
+        doc.text(
+            lines,
+            x + 10,
+            y
+        );
+
+
+        y +=
+            lines.length * 4.5 +
+            5;
+    }
+
+
+    return y;
+}
+
+
+/* ============================================================
+   PDF BULLET SECTION
+   ============================================================ */
+
+function pdfBulletSection(
+    doc,
+    items,
+    x,
+    y,
+    width
+) {
+
+    if (
+        !items ||
+        items.length === 0
+    ) {
+
+        return pdfParagraph(
+            doc,
+            "No information available.",
+            x,
+            y,
+            width
+        );
+    }
+
+
+    for (
+        const item of items
+    ) {
+
+        const text =
+            normalizeText(
+                item
+            );
+
+
+        if (!text) {
+            continue;
+        }
+
+
+        const lines =
+            doc.splitTextToSize(
+                text,
+                width - 8
+            );
+
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                lines.length * 4.5 + 4
+            );
+
+
+        doc.setFont(
+            "helvetica",
+            "normal"
+        );
+
+
+        doc.setFontSize(
+            9
+        );
+
+
+        doc.text(
+            "•",
+            x,
+            y
+        );
+
+
+        doc.text(
+            lines,
+            x + 7,
+            y
+        );
+
+
+        y +=
+            lines.length * 4.5 +
+            4;
+    }
+
+
+    return y;
+}
+
+
+/* ============================================================
+   PDF WRAPPED TEXT
+   ============================================================ */
+
+function pdfWriteWrapped(
+    doc,
+    text,
+    x,
+    y,
+    width,
+    lineHeight
+) {
+
+    const lines =
+        doc.splitTextToSize(
+            String(text || ""),
+            width
+        );
+
+
+    doc.text(
+        lines,
+        x,
+        y
+    );
+
+
+    return (
+        y +
+        lines.length *
+            lineHeight
+    );
+}
+
+
+/* ============================================================
+   PDF LINE
+   ============================================================ */
+
+function pdfLine(
+    doc,
+    x1,
+    y1,
+    x2,
+    y2
+) {
+
+    doc.setLineWidth(
+        0.2
+    );
+
+
+    doc.line(
+        x1,
+        y1,
+        x2,
+        y2
+    );
+}
+
+
+/* ============================================================
+   PDF PAGE SPACE
+   ============================================================ */
+
+function pdfEnsureSpace(
+    doc,
+    y,
+    requiredHeight
+) {
+
+    const pageHeight =
+        doc.internal.pageSize.getHeight();
+
+
+    if (
+        y + requiredHeight >
+        pageHeight - 18
+    ) {
+
+        doc.addPage();
+
+        return 20;
+    }
+
+
+    return y;
+}
+
+
+/* ============================================================
+   PDF PAGE NUMBERS
+   ============================================================ */
+
+function addPdfPageNumbers(
+    doc
+) {
+
+    const pageCount =
+        doc.internal.getNumberOfPages();
+
+
+    const pageWidth =
+        doc.internal.pageSize.getWidth();
+
+
+    const pageHeight =
+        doc.internal.pageSize.getHeight();
+
+
+    for (
+        let page = 1;
+        page <= pageCount;
+        page++
+    ) {
+
+        doc.setPage(
+            page
+        );
+
+
+        doc.setFont(
+            "helvetica",
+            "normal"
+        );
+
+
+        doc.setFontSize(
+            7
+        );
+
+
+        doc.text(
+            "AI Video Summarizer",
+            18,
+            pageHeight - 9
+        );
+
+
+        doc.text(
+            `Page ${page} of ${pageCount}`,
+            pageWidth - 18,
+            pageHeight - 9,
+            {
+                align: "right"
+            }
+        );
+    }
+}
+
+
+/* ============================================================
+   PDF FILE NAME
+   ============================================================ */
+
+function createPdfFilename(
+    title,
+    language
+) {
+
+    let cleanTitle =
+        String(
+            title ||
+            "video"
+        )
+            .replace(
+                /[<>:"/\\|?*]+/g,
+                ""
+            )
+            .replace(
+                /\s+/g,
+                " "
+            )
+            .trim();
+
+
+    if (
+        cleanTitle.length >
+        80
+    ) {
+
+        cleanTitle =
+            cleanTitle.substring(
+                0,
+                80
+            );
+    }
+
+
+    if (!cleanTitle) {
+        cleanTitle = "video";
+    }
+
+
+    return (
+        "AI_Video_Analysis_" +
+        cleanTitle +
+        "_" +
+        String(
+            language ||
+            "en"
+        ).toUpperCase() +
+        ".pdf"
+    );
+}
 
 /* ============================================================
    NUMBERED LIST
@@ -2393,14 +3091,699 @@ function getResponseKeys(
 
 async function generatePdf() {
 
-    /*
-     * PDF export can be added after
-     * the API analysis is confirmed working.
-     */
+    if (
+        !currentAIData ||
+        !currentVideoData
+    ) {
 
-    alert(
-        "PDF export is ready to be connected after the analysis result is confirmed."
-    );
+        showStatus(
+            "No analysis available for PDF export.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    const button =
+        document.getElementById(
+            "downloadPdfButton"
+        );
+
+
+    if (button) {
+
+        button.disabled = true;
+
+        button.textContent =
+            "GENERATING PDF...";
+    }
+
+
+    try {
+
+        /*
+         * Load jsPDF
+         */
+
+        await loadJsPDF();
+
+
+        if (
+            !window.jspdf ||
+            !window.jspdf.jsPDF
+        ) {
+
+            throw new Error(
+                "PDF library failed to load."
+            );
+        }
+
+
+        const jsPDF =
+            window.jspdf.jsPDF;
+
+
+        const doc =
+            new jsPDF({
+                orientation: "portrait",
+                unit: "mm",
+                format: "a4"
+            });
+
+
+        const report =
+            currentAIData[
+                currentLanguage
+            ] || {};
+
+
+        const transcriptData =
+            currentTranscriptData;
+
+
+        const title =
+            transcriptData?.title ||
+            currentVideoData?.title ||
+            "AI Video Analysis";
+
+
+        const margin = 18;
+
+        const pageWidth =
+            doc.internal.pageSize.getWidth();
+
+        const pageHeight =
+            doc.internal.pageSize.getHeight();
+
+        const contentWidth =
+            pageWidth -
+            margin * 2;
+
+
+        let y = margin;
+
+
+        /*
+         * =====================================================
+         * TITLE
+         * =====================================================
+         */
+
+        doc.setFont(
+            "helvetica",
+            "bold"
+        );
+
+        doc.setFontSize(20);
+
+
+        y = pdfWriteWrapped(
+            doc,
+            "AI VIDEO ANALYSIS REPORT",
+            margin,
+            y,
+            contentWidth,
+            8
+        );
+
+
+        y += 3;
+
+
+        doc.setFont(
+            "helvetica",
+            "normal"
+        );
+
+        doc.setFontSize(11);
+
+
+        y = pdfWriteWrapped(
+            doc,
+            title,
+            margin,
+            y,
+            contentWidth,
+            5
+        );
+
+
+        y += 5;
+
+
+        pdfLine(
+            doc,
+            margin,
+            y,
+            pageWidth - margin,
+            y
+        );
+
+
+        y += 8;
+
+
+        /*
+         * =====================================================
+         * VIDEO INFORMATION
+         * =====================================================
+         */
+
+        y =
+            pdfSectionTitle(
+                doc,
+                "VIDEO INFORMATION",
+                margin,
+                y
+            );
+
+
+        const videoLanguage =
+            transcriptData?.language ||
+            currentVideoData?.language ||
+            "Unknown";
+
+
+        const processing =
+            currentVideoData?.processing ||
+            {};
+
+
+        y =
+            pdfInfoRow(
+                doc,
+                "Title",
+                title,
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y =
+            pdfInfoRow(
+                doc,
+                "Language",
+                String(
+                    videoLanguage
+                ).toUpperCase(),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y =
+            pdfInfoRow(
+                doc,
+                "Report Language",
+                currentLanguage === "id"
+                    ? "Bahasa Indonesia"
+                    : "English",
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y =
+            pdfInfoRow(
+                doc,
+                "Transcript Segments",
+                String(
+                    processing.total_segments ??
+                    transcriptData?.transcript?.length ??
+                    0
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y =
+            pdfInfoRow(
+                doc,
+                "Analysis Chunks",
+                String(
+                    processing.total_chunks ??
+                    "-"
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y =
+            pdfInfoRow(
+                doc,
+                "Transcript Characters",
+                String(
+                    processing.transcript_characters ??
+                    "-"
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y += 6;
+
+
+        /*
+         * =====================================================
+         * EXECUTIVE SUMMARY
+         * =====================================================
+         */
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                30
+            );
+
+
+        y =
+            pdfSectionTitle(
+                doc,
+                "EXECUTIVE SUMMARY",
+                margin,
+                y
+            );
+
+
+        y += 2;
+
+
+        y =
+            pdfParagraph(
+                doc,
+                normalizeText(
+                    report.summary
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y += 6;
+
+
+        /*
+         * =====================================================
+         * KEY POINTS
+         * =====================================================
+         */
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                30
+            );
+
+
+        y =
+            pdfSectionTitle(
+                doc,
+                "KEY POINTS",
+                margin,
+                y
+            );
+
+
+        y += 2;
+
+
+        y =
+            pdfNumberedSection(
+                doc,
+                normalizeArray(
+                    report.key_points
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y += 4;
+
+
+        /*
+         * =====================================================
+         * CRITICAL ANALYSIS
+         * =====================================================
+         */
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                30
+            );
+
+
+        y =
+            pdfSectionTitle(
+                doc,
+                "CRITICAL ANALYSIS",
+                margin,
+                y
+            );
+
+
+        y += 2;
+
+
+        y =
+            pdfNumberedSection(
+                doc,
+                normalizeArray(
+                    report.critical_analysis
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y += 4;
+
+
+        /*
+         * =====================================================
+         * IMPLICATIONS
+         * =====================================================
+         */
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                30
+            );
+
+
+        y =
+            pdfSectionTitle(
+                doc,
+                "IMPLICATIONS",
+                margin,
+                y
+            );
+
+
+        y += 2;
+
+
+        y =
+            pdfNumberedSection(
+                doc,
+                normalizeArray(
+                    report.implications
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        y += 4;
+
+
+        /*
+         * =====================================================
+         * KEY TAKEAWAYS
+         * =====================================================
+         */
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                30
+            );
+
+
+        y =
+            pdfSectionTitle(
+                doc,
+                "KEY TAKEAWAYS",
+                margin,
+                y
+            );
+
+
+        y += 2;
+
+
+        y =
+            pdfBulletSection(
+                doc,
+                normalizeArray(
+                    report.takeaways
+                ),
+                margin,
+                y,
+                contentWidth
+            );
+
+
+        /*
+         * =====================================================
+         * TRANSCRIPT
+         * =====================================================
+         */
+
+        y =
+            pdfEnsureSpace(
+                doc,
+                y,
+                35
+            );
+
+
+        y =
+            pdfSectionTitle(
+                doc,
+                "SOURCE MATERIAL / TRANSCRIPT",
+                margin,
+                y
+            );
+
+
+        y += 4;
+
+
+        const transcript =
+            transcriptData?.transcript;
+
+
+        if (
+            Array.isArray(
+                transcript
+            ) &&
+            transcript.length > 0
+        ) {
+
+            for (
+                let i = 0;
+                i < transcript.length;
+                i++
+            ) {
+
+                const segment =
+                    transcript[i];
+
+
+                const timestamp =
+                    formatTimestamp(
+                        segment.start
+                    );
+
+
+                const text =
+                    normalizeText(
+                        segment.text
+                    );
+
+
+                /*
+                 * Estimate required height
+                 */
+
+                doc.setFont(
+                    "helvetica",
+                    "normal"
+                );
+
+                doc.setFontSize(8);
+
+
+                const lines =
+                    doc.splitTextToSize(
+                        text,
+                        contentWidth - 25
+                    );
+
+
+                const requiredHeight =
+                    Math.max(
+                        7,
+                        lines.length * 3.8
+                    ) + 4;
+
+
+                y =
+                    pdfEnsureSpace(
+                        doc,
+                        y,
+                        requiredHeight
+                    );
+
+
+                /*
+                 * Timestamp
+                 */
+
+                doc.setFont(
+                    "helvetica",
+                    "bold"
+                );
+
+                doc.setFontSize(8);
+
+
+                doc.text(
+                    timestamp,
+                    margin,
+                    y
+                );
+
+
+                /*
+                 * Transcript text
+                 */
+
+                doc.setFont(
+                    "helvetica",
+                    "normal"
+                );
+
+
+                doc.text(
+                    lines,
+                    margin + 25,
+                    y
+                );
+
+
+                y +=
+                    lines.length * 3.8 +
+                    4;
+
+
+                /*
+                 * Light separator
+                 */
+
+                if (
+                    y <
+                    pageHeight - 20
+                ) {
+
+                    pdfLine(
+                        doc,
+                        margin,
+                        y,
+                        pageWidth - margin,
+                        y
+                    );
+
+                    y += 2;
+                }
+            }
+
+        } else {
+
+            y =
+                pdfParagraph(
+                    doc,
+                    "Transcript is not available.",
+                    margin,
+                    y,
+                    contentWidth
+                );
+        }
+
+
+        /*
+         * =====================================================
+         * FOOTER / PAGE NUMBERS
+         * =====================================================
+         */
+
+        addPdfPageNumbers(
+            doc
+        );
+
+
+        /*
+         * =====================================================
+         * FILE NAME
+         * =====================================================
+         */
+
+        const filename =
+            createPdfFilename(
+                title,
+                currentLanguage
+            );
+
+
+        doc.save(
+            filename
+        );
+
+
+        showStatus(
+            "PDF downloaded successfully.",
+            "success"
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "PDF ERROR:",
+            error
+        );
+
+
+        showStatus(
+            error.message ||
+            "Failed to generate PDF.",
+            "error"
+        );
+
+
+    } finally {
+
+        if (button) {
+
+            button.disabled =
+                false;
+
+            button.textContent =
+                "DOWNLOAD PDF";
+        }
+    }
 }
 
 
