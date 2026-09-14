@@ -4,6 +4,7 @@ from workers import asgi, env
 import httpx2 as httpx
 
 import ast
+import asyncio
 import hashlib
 import json
 import re
@@ -15,7 +16,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.3.0"
+    version="9.4.1"
 )
 
 
@@ -42,15 +43,19 @@ TRANSCRIPT_API_URL = (
     "https://api.freetranscriptapi.com/v1/transcript"
 )
 
-CHUNK_SIZE = 18000
+CHUNK_SIZE = 14000
 
-MAX_SINGLE_PASS_CHARS = 100000
+MAX_SINGLE_PASS_CHARS = 65000
 
-MAX_FINAL_CONTEXT_CHARS = 90000
+MAX_FINAL_CONTEXT_CHARS = 70000
 
-AI_TIMEOUT = 120.0
+AI_TIMEOUT = 90.0
 
-AI_MAX_TOKENS = 5000
+AI_MAX_TOKENS = 4200
+
+AI_RETRIES = 2
+
+TRANSCRIPT_RETRIES = 2
 
 
 # ============================================================
@@ -675,6 +680,7 @@ Use exactly this structure:
     "media_analysis": {
       "news_angle": "",
       "highlighted_actors": [],
+      "actor_evidence": [],
       "pemprov_jateng_position": "",
       "public_opinion_potential": "",
       "key_messages": []
@@ -709,6 +715,7 @@ Use exactly this structure:
     "media_analysis": {
       "news_angle": "",
       "highlighted_actors": [],
+      "actor_evidence": [],
       "pemprov_jateng_position": "",
       "public_opinion_potential": "",
       "key_messages": []
@@ -877,7 +884,14 @@ Before returning JSON:
 10. For highlighted_actors, verify that each item identifies a person/institution,
     and includes the person's name and official title whenever explicitly stated.
 11. Never replace a named attendee with a generic action such as "attended the opening".
-12. Return ONLY valid JSON.
+12. For every highlighted actor, provide at least one evidence item in
+    media_analysis.actor_evidence when the source contains enough evidence.
+13. Evidence MUST come directly from the supplied source and MUST include
+    the source timestamp when a timestamp is available.
+14. Evidence quote must be a short verbatim excerpt from the source, not a
+    paraphrase. Do not invent or reconstruct quotations.
+15. Evidence is factual only; do not add analytical interpretation to it.
+16. Return ONLY valid JSON.
 
 ============================================================
 ACTOR DETAIL REQUIREMENT
@@ -921,6 +935,7 @@ Return exactly:
     "media_analysis": {
       "news_angle": "",
       "highlighted_actors": [],
+      "actor_evidence": [],
       "pemprov_jateng_position": "",
       "public_opinion_potential": "",
       "key_messages": []
@@ -947,49 +962,64 @@ Return exactly:
 # ============================================================
 
 ACTOR_EXTRACTION_SYSTEM_PROMPT = """
-You are a strict factual entity-extraction AI for a professional media
-monitoring report.
+You are a strict factual entity-and-evidence extraction AI for a professional
+media monitoring report.
 
-Extract ONLY people, officials, government agencies, OPDs, institutions,
-or organizations that are explicitly mentioned in the supplied transcript
-or factual notes AND are connected to the event, attendance, participation,
-opening, speech, leadership, representation, or another concrete role.
+Extract ONLY people, government officials, government agencies, OPDs,
+institutions, organizations, communities, or other actors explicitly
+mentioned in the supplied transcript/factual source AND connected to the
+event, attendance, participation, opening, speech, leadership, representation,
+or another concrete role.
 
-IMPORTANT: The purpose is to identify WHO is involved, not merely WHAT
-happened.
+The purpose is to identify WHO is involved and provide the exact source
+evidence showing that involvement.
 
-For every person, identify: FULL NAME + OFFICIAL TITLE/POSITION + ROLE/ACTION.
+For every PERSON, extract:
+- full name, if explicitly stated
+- official title/position, if explicitly stated
+- role/action
+- timestamp of the evidence
+- short verbatim evidence quote
 
-Rules:
+RULES:
 1. Use ONLY information explicitly present in the source.
-2. NEVER guess or infer a person's name from their title.
+2. NEVER guess a person's name from their title.
 3. NEVER use outside knowledge.
-4. If a person's name is explicitly present, it MUST be included.
-5. If only the title is present, use:
-   "Official Title — name not stated in transcript — role/action"
-6. If both name and title are present, use:
-   "Full Name — Official Title — role/action"
-7. Prefer actual attendees/participants over people merely mentioned.
-8. Do not identify speakers by voice. Only use names explicitly stated in
-   the source.
-9. Do not output generic action-only items such as "attended the opening".
+4. If a person's name is explicitly present, include it.
+5. If only the title is present, use an empty name and state the title.
+6. Prefer actual attendees/participants over people merely mentioned.
+7. Distinguish actual attendance/participation from mere mention.
+8. Do not identify speakers by voice. Only use names explicitly stated.
+9. Do not output generic action-only actors.
 10. Deduplicate the same person.
-11. Keep the official title as stated or clearly formatted from the source.
-12. Keep the role/action concise and factual.
-13. If an institution/OPD is mentioned without a person, include it only
-    when it has a concrete role in the event.
+11. Keep official titles faithful to the source.
+12. Keep role/action concise and factual.
+13. Evidence quote MUST be copied verbatim from the source.
+14. Evidence quote should normally be 5-30 words and contain the actor
+    name/title and/or the relevant action whenever possible.
+15. Evidence timestamp MUST be the timestamp shown immediately before the
+    supporting source text, such as [02:31]. If no timestamp is available,
+    use an empty string.
+16. Do not create a timestamp.
+17. For institutions/OPDs, include them only when they have a concrete role.
+18. If no supported actor can be identified, return an empty actors array.
 
 Return ONLY valid JSON in exactly this structure:
 {
   "actors": [
-    "Full Name — Official Title — role/action"
+    {
+      "name": "",
+      "official_title": "",
+      "role": "",
+      "evidence_timestamp": "",
+      "evidence_quote": ""
+    }
   ]
 }
 
-If no supported actor can be identified, return:
+If no supported actor can be identified:
 {"actors": []}
 """
-
 
 # ============================================================
 # INDONESIAN TRANSLATION SYSTEM PROMPT
@@ -1060,6 +1090,9 @@ TRANSLATION RULES
 
 10. Highlighted actor items must remain one-to-one with the English master.
     Preserve every person's name, official title, attendance status, and role/action.
+10a. Preserve actor_evidence one-to-one with the English master. Preserve
+     evidence_timestamp exactly. Evidence quotes MUST remain verbatim source
+     text and MUST NOT be translated, paraphrased, or altered.
     Translate the descriptive wording, but never translate or alter proper names.
 
 11. Controlled values MUST remain unchanged internally:
@@ -1712,21 +1745,60 @@ async def run_ai(
         "max_tokens": max_tokens
     }
 
-    try:
+    last_error = None
 
-        result = await env.AI.run(
-            AI_MODEL,
-            payload
-        )
+    for attempt in range(AI_RETRIES + 1):
+        try:
+            return await env.AI.run(
+                AI_MODEL,
+                payload
+            )
+        except Exception as error:
+            last_error = error
 
-        return result
+            if attempt < AI_RETRIES:
+                await asyncio.sleep(0.8 * (attempt + 1))
 
-    except Exception as error:
+    raise RuntimeError(
+        "AI model request failed after retries: "
+        + str(last_error)
+    )
 
-        raise RuntimeError(
-            "AI model request failed: "
-            + str(error)
-        )
+
+async def run_ai_json(
+    system_prompt,
+    user_prompt,
+    max_tokens=AI_MAX_TOKENS
+):
+    """Run AI and require parseable JSON, with one extra repair attempt."""
+
+    last_error = None
+
+    for attempt in range(2):
+        prompt = user_prompt
+
+        if attempt:
+            prompt += (
+                "\n\nIMPORTANT RETRY: Return ONLY a valid JSON object. "
+                "Do not include markdown fences, explanations, or commentary."
+            )
+
+        try:
+            result = await run_ai(
+                system_prompt,
+                prompt,
+                max_tokens
+            )
+
+            return parse_ai_json(result)
+
+        except Exception as error:
+            last_error = error
+
+    raise RuntimeError(
+        "AI returned invalid or unusable JSON after retries: "
+        + str(last_error)
+    )
 
 
 # ============================================================
@@ -1736,85 +1808,78 @@ async def run_ai(
 async def extract_highlighted_actors(source_text):
 
     if not isinstance(source_text, str):
-        return []
+        return [], []
 
     source_text = source_text.strip()
 
     if not source_text:
-        return []
+        return [], []
 
-    # Keep enough context for names, titles and attendance details.
-    # The actor extractor is factual and intentionally separate from the
-    # broader media analysis so generic action-only bullets are less likely.
+    # Evidence extraction must use the timestamped transcript itself, not
+    # synthesized chunk notes, so the timestamp and quote can be traced back
+    # to the original source.
     source_text = source_text[:MAX_FINAL_CONTEXT_CHARS]
 
     prompt = (
-        "Extract the highlighted actors from the following source.\n\n"
+        "Extract highlighted actors AND their source evidence from the "
+        "following timestamped transcript/source.\n\n"
         "SOURCE:\n\n"
         + source_text
     )
 
     try:
-        result = await run_ai(
+        parsed = await run_ai_json(
             ACTOR_EXTRACTION_SYSTEM_PROMPT,
             prompt,
-            3500
+            3000
         )
 
-        parsed = parse_ai_json(result)
-
-        actors = parsed.get(
-            "actors",
-            []
-        ) if isinstance(parsed, dict) else []
+        actors = parsed.get("actors", []) if isinstance(parsed, dict) else []
 
         if not isinstance(actors, list):
-            return []
+            return [], []
 
-        cleaned = []
+        highlighted = []
+        evidence = []
         seen = set()
 
-        for actor in actors:
-
-            if isinstance(actor, dict):
-                name = normalize_text(actor.get("name", ""))
-                title = normalize_text(
-                    actor.get("official_title", actor.get("title", ""))
-                )
-                role = normalize_text(
-                    actor.get("role", actor.get("action", ""))
-                )
-
-                if name and title and role:
-                    actor_text = (
-                        name
-                        + " — "
-                        + title
-                        + " — "
-                        + role
-                    )
-                elif title and role:
-                    actor_text = (
-                        title
-                        + " — name not stated in transcript — "
-                        + role
-                    )
-                else:
-                    continue
-            else:
-                actor_text = normalize_text(actor)
-
-            if not actor_text:
+        for item in actors:
+            if not isinstance(item, dict):
                 continue
 
-            # Reject the exact generic action-only output that caused the
-            # current problem.
-            generic = re.sub(
-                r"\s+",
-                " ",
-                actor_text.lower()
-            ).strip()
+            name = normalize_text(item.get("name", ""))
+            title = normalize_text(
+                item.get("official_title", item.get("title", ""))
+            )
+            role = normalize_text(
+                item.get("role", item.get("action", ""))
+            )
+            timestamp = normalize_text(
+                item.get("evidence_timestamp", item.get("timestamp", ""))
+            )
+            quote = normalize_text(
+                item.get("evidence_quote", item.get("quote", ""))
+            )
 
+            if not title and not name:
+                continue
+
+            if name and title and role:
+                actor_text = f"{name} — {title} — {role}"
+            elif name and role:
+                actor_text = f"{name} — {role}"
+            elif title and role:
+                actor_text = (
+                    f"{title} — name not stated in transcript — {role}"
+                )
+            elif name and title:
+                actor_text = f"{name} — {title}"
+            elif title:
+                actor_text = f"{title} — name not stated in transcript"
+            else:
+                continue
+
+            generic = re.sub(r"\s+", " ", actor_text.lower()).strip()
             if generic in {
                 "attended the opening ceremony",
                 "attended the opening",
@@ -1826,16 +1891,26 @@ async def extract_highlighted_actors(source_text):
                 continue
 
             key = actor_text.lower()
+            if key in seen:
+                continue
 
-            if key not in seen:
-                seen.add(key)
-                cleaned.append(actor_text)
+            seen.add(key)
+            highlighted.append(actor_text)
 
-        return cleaned[:12]
+            evidence.append({
+                "actor": actor_text,
+                "name": name,
+                "official_title": title,
+                "role": role,
+                "evidence_timestamp": timestamp,
+                "evidence_quote": quote
+            })
+
+        return highlighted[:12], evidence[:12]
 
     except Exception:
-        # The main analysis remains usable if the dedicated extractor fails.
-        return []
+        # Main analysis remains usable if the evidence extractor fails.
+        return [], []
 
 
 # ============================================================
@@ -2216,6 +2291,54 @@ def normalize_communication_risk(value):
 
 
 # ============================================================
+# NORMALIZE ACTOR EVIDENCE
+# ============================================================
+
+def normalize_actor_evidence(value):
+    if not isinstance(value, list):
+        return []
+
+    cleaned = []
+
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+
+        actor = normalize_text(
+            item.get("actor", "")
+        )
+        name = normalize_text(
+            item.get("name", "")
+        )
+        official_title = normalize_text(
+            item.get("official_title", item.get("title", ""))
+        )
+        role = normalize_text(
+            item.get("role", item.get("action", ""))
+        )
+        timestamp = normalize_text(
+            item.get("evidence_timestamp", item.get("timestamp", ""))
+        )
+        quote = normalize_text(
+            item.get("evidence_quote", item.get("quote", ""))
+        )
+
+        if not (actor or name or official_title or quote):
+            continue
+
+        cleaned.append({
+            "actor": actor,
+            "name": name,
+            "official_title": official_title,
+            "role": role,
+            "evidence_timestamp": timestamp,
+            "evidence_quote": quote
+        })
+
+    return cleaned[:12]
+
+
+# ============================================================
 # NORMALIZE MEDIA ANALYSIS
 # ============================================================
 
@@ -2230,6 +2353,10 @@ def normalize_media_analysis(value):
 
         "highlighted_actors": normalize_list(
             value.get("highlighted_actors", [])
+        ),
+
+        "actor_evidence": normalize_actor_evidence(
+            value.get("actor_evidence", [])
         ),
 
         "pemprov_jateng_position": normalize_text(
@@ -3033,26 +3160,40 @@ async def fetch_transcript(
             "Invalid YouTube URL."
         )
 
-    try:
+    response = None
+    last_error = None
 
-        async with httpx.AsyncClient(
-            timeout=AI_TIMEOUT,
-            follow_redirects=True
-        ) as client:
+    for attempt in range(TRANSCRIPT_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(
+                timeout=AI_TIMEOUT,
+                follow_redirects=True
+            ) as client:
+                response = await client.get(
+                    TRANSCRIPT_API_URL,
+                    params={
+                        "video_url": normalized_url
+                    }
+                )
 
-            response = await client.get(
-                TRANSCRIPT_API_URL,
-                params={
-                    "video_url":
-                        normalized_url
-                }
+            if response.status_code == 200:
+                break
+
+            last_error = RuntimeError(
+                "Transcript service returned HTTP "
+                + str(response.status_code)
             )
 
-    except Exception as error:
+        except Exception as error:
+            last_error = error
 
+        if attempt < TRANSCRIPT_RETRIES:
+            await asyncio.sleep(0.8 * (attempt + 1))
+
+    if response is None:
         raise RuntimeError(
-            "Failed to connect to transcript service: "
-            + str(error)
+            "Failed to connect to transcript service after retries: "
+            + str(last_error)
         )
 
     if response.status_code != 200:
@@ -3233,33 +3374,51 @@ IMPORTANT:
 - Do not leave English sentences in the Indonesian result.
 - Keep the literal prefix "Inference:" for inferential items.
 - Keep controlled internal values unchanged.
+- Preserve actor_evidence one-to-one.
+- DO NOT translate evidence_quote; it must remain verbatim source text.
+- DO NOT change evidence_timestamp.
 
 MASTER ENGLISH ANALYSIS:
 
 """ + source_json
 
-    result = await run_ai(
-        INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
-        prompt,
-        5000
-    )
+    last_error = None
 
-    parsed = parse_ai_json(
-        result
-    )
+    for attempt in range(2):
+        try:
+            parsed = await run_ai_json(
+                INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
+                prompt,
+                4200
+            )
 
-    id_block = parsed.get(
-        "id",
-        parsed
-    )
+            id_block = parsed.get(
+                "id",
+                parsed
+            )
 
-    if not isinstance(id_block, dict):
-        raise ValueError(
-            "Indonesian translation returned invalid data."
-        )
+            if not isinstance(id_block, dict):
+                raise ValueError(
+                    "Indonesian translation returned invalid data."
+                )
 
-    return normalize_language_block(
-        id_block
+            id_block = normalize_language_block(id_block)
+            validate_indonesian_translation(master_en, id_block)
+            return id_block
+
+        except Exception as error:
+            last_error = error
+
+            if attempt == 0:
+                prompt += (
+                    "\n\nRETRY REQUIREMENT: The previous translation was incomplete. "
+                    "Translate every field, especially recommendation action/reason "
+                    "and actor evidence metadata. Preserve counts and order."
+                )
+
+    raise RuntimeError(
+        "Indonesian translation failed after retries: "
+        + str(last_error)
     )
 
 
@@ -3359,6 +3518,43 @@ def validate_indonesian_translation(
         raise ValueError(
             "Indonesian translation is incomplete: main_issue.description"
         )
+
+    # Actor evidence must remain one-to-one and traceable.
+    en_media = master_en.get("media_analysis", {})
+    id_media = id_block.get("media_analysis", {})
+    if not isinstance(en_media, dict):
+        en_media = {}
+    if not isinstance(id_media, dict):
+        id_media = {}
+
+    en_evidence = en_media.get("actor_evidence", [])
+    id_evidence = id_media.get("actor_evidence", [])
+    if not isinstance(en_evidence, list):
+        en_evidence = []
+    if not isinstance(id_evidence, list):
+        id_evidence = []
+
+    if len(en_evidence) != len(id_evidence):
+        raise ValueError(
+            "Indonesian translation changed actor evidence count."
+        )
+
+    for index, en_item in enumerate(en_evidence):
+        if not isinstance(en_item, dict):
+            continue
+        id_item = id_evidence[index]
+        if not isinstance(id_item, dict):
+            raise ValueError("Indonesian actor evidence item is invalid.")
+
+        if normalize_text(en_item.get("actor", "")) and not normalize_text(id_item.get("actor", "")):
+            raise ValueError("Indonesian actor evidence is incomplete: actor")
+
+        if normalize_text(en_item.get("evidence_timestamp", "")) != normalize_text(id_item.get("evidence_timestamp", "")):
+            raise ValueError("Indonesian actor evidence timestamp changed.")
+
+        # Evidence quote is source text, so it must remain verbatim.
+        if normalize_text(en_item.get("evidence_quote", "")) != normalize_text(id_item.get("evidence_quote", "")):
+            raise ValueError("Indonesian actor evidence quote changed.")
 
     # Recommendation count and prose must be preserved.
     en_recs = master_en.get(
@@ -3483,19 +3679,35 @@ async def build_consistent_analysis(
         master_en
     )
 
-    # Run a dedicated factual actor extraction pass. This prevents the
-    # broader media-analysis model from collapsing named attendees into
-    # generic bullets such as "attended the opening ceremony".
+    # Only run the extra actor extraction pass when the master analysis
+    # does not already contain useful named actors/evidence. This reduces
+    # latency and failure points for normal short videos while preserving
+    # the dedicated extractor as a fallback for difficult transcripts.
     if actor_source:
-        extracted_actors = await extract_highlighted_actors(
-            actor_source
-        )
+        media = master_en.get("media_analysis", {})
+        if not isinstance(media, dict):
+            media = {}
+            master_en["media_analysis"] = media
 
-        if extracted_actors:
-            master_en.setdefault(
-                "media_analysis",
-                {}
-            )["highlighted_actors"] = extracted_actors
+        existing_actors = media.get("highlighted_actors", [])
+        existing_evidence = media.get("actor_evidence", [])
+
+        if (not existing_actors) or (not existing_evidence):
+            try:
+                extracted_actors, actor_evidence = await extract_highlighted_actors(
+                    actor_source
+                )
+
+                if extracted_actors:
+                    media["highlighted_actors"] = extracted_actors
+
+                if actor_evidence:
+                    media["actor_evidence"] = actor_evidence
+
+            except Exception:
+                # Actor evidence is supplemental. Never let this optional
+                # pass destroy an otherwise valid analysis.
+                pass
 
     id_block = await translate_master_to_indonesian(
         master_en
@@ -3559,15 +3771,16 @@ async def analyze_large_transcript(
             + chunk
         )
 
-        result = await run_ai(
+        result = await run_ai_json(
             CHUNK_SYSTEM_PROMPT,
             prompt,
-            2500
+            2200
         )
 
         notes.append(
-            extract_ai_text(
-                result
+            json.dumps(
+                result,
+                ensure_ascii=False
             )
         )
 
@@ -3575,9 +3788,13 @@ async def analyze_large_transcript(
         notes
     )
 
-    combined_notes = combined_notes[
-        :MAX_FINAL_CONTEXT_CHARS
-    ]
+    if len(combined_notes) > MAX_FINAL_CONTEXT_CHARS:
+        half = MAX_FINAL_CONTEXT_CHARS // 2
+        combined_notes = (
+            combined_notes[:half]
+            + "\n\n[... middle notes omitted for context control ...]\n\n"
+            + combined_notes[-half:]
+        )
 
     final_prompt = """
 Create the final professional video analysis from the following
@@ -3604,17 +3821,15 @@ ANALYSIS NOTES:
 
 """ + combined_notes
 
-    final_result = await run_ai(
+    final_result = await run_ai_json(
         MASTER_SYSTEM_PROMPT,
         final_prompt,
-        5000
+        4200
     )
 
     analysis = await build_consistent_analysis(
-        parse_ai_json(
-            final_result
-        ),
-        actor_source=combined_notes
+        final_result,
+        actor_source=transcript_text
     )
 
     return (
@@ -3661,16 +3876,14 @@ TRANSCRIPT:
 
 """ + transcript_text
 
-        result = await run_ai(
+        result = await run_ai_json(
             MASTER_SYSTEM_PROMPT,
             prompt,
-            5000
+            4200
         )
 
         analysis = await build_consistent_analysis(
-            parse_ai_json(
-                result
-            ),
+            result,
             actor_source=transcript_text
         )
 
@@ -4117,7 +4330,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.3.0"
+            "9.4.1"
     }
 
 
@@ -4133,7 +4346,7 @@ async def health():
             "ok",
 
         "version":
-            "9.3.0"
+            "9.4.1"
     }
 
 
