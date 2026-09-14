@@ -15,7 +15,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.1.0"
+    version="9.2.0"
 )
 
 
@@ -388,11 +388,41 @@ Possible examples:
 
 Do not force an angle that is not supported.
 
-2. HIGHLIGHTED ACTORS
+2. HIGHLIGHTED ACTORS / ATTENDANCE
 
-Identify people, institutions, government agencies,
-OPDs, organizations, communities, or other actors
-receiving significant attention.
+Identify the people, government agencies, OPDs, institutions,
+organizations, communities, or other actors who are actually
+mentioned in the transcript and receive significant attention.
+
+IMPORTANT: When the transcript states that a person attended,
+was present, opened, led, spoke at, represented, or participated
+in the event, identify that person by NAME and OFFICIAL TITLE
+whenever both are explicitly available in the transcript.
+
+Each highlighted_actors item MUST be a single concise string using
+this format:
+
+"Full Name — Official Title/Position — Attendance or Role/Action"
+
+Examples:
+- "Ahmad Example — Governor of Central Java — attended the opening ceremony"
+- "Budi Example — Minister of Religious Affairs — attended and delivered remarks"
+
+If the person's name is NOT stated in the transcript, DO NOT guess
+or use outside knowledge. Instead write:
+
+"Official Title — name not stated in transcript — attendance/role"
+
+If only an institution or OPD is mentioned, identify the institution
+and its role without inventing a person.
+
+Distinguish between:
+- people who actually attended or participated,
+- people merely mentioned as context, and
+- institutions/OPDs involved.
+
+Prioritize actual attendees/participants when the transcript provides
+that information.
 
 Only include actors supported by the transcript.
 
@@ -844,7 +874,30 @@ Before returning JSON:
 7. Ensure Implications add reasonable consequences or significance.
 8. Ensure Recommendations follow directly from the analysis.
 9. Ensure sentiment and risk are internally consistent with the evidence.
-10. Return ONLY valid JSON.
+10. For highlighted_actors, verify that each item identifies a person/institution,
+    and includes the person's name and official title whenever explicitly stated.
+11. Never replace a named attendee with a generic action such as "attended the opening".
+12. Return ONLY valid JSON.
+
+============================================================
+ACTOR DETAIL REQUIREMENT
+============================================================
+
+The media_analysis.highlighted_actors field is especially important.
+Do not output generic action-only bullets such as:
+- "attended the opening ceremony"
+- "attended the opening ceremony"
+- "led the opening ceremony"
+
+Instead, every item must identify WHO performed the action, using the
+name and official title when the transcript provides them.
+
+The actor list must therefore answer:
+1. Who attended?
+2. What official position did they hold?
+3. What did they do or what was their role?
+
+Never invent a person's name.
 
 ============================================================
 OUTPUT JSON
@@ -938,6 +991,11 @@ TRANSLATION RULES
 4. Preserve names of people, organizations, locations, events,
    programs, and official titles accurately.
 
+4a. Preserve the identity and official title of every highlighted
+    actor. If the English master says that a person attended, keep
+    that attendance meaning in Indonesian. Do not replace a named
+    person with a generic title.
+
 5. Preserve the same number of Key Points, Critical Analysis,
    Implications, Recommendations, and Takeaways.
 
@@ -951,7 +1009,11 @@ TRANSLATION RULES
    with "Inference:" in Indonesian as well. Keep the literal prefix
    "Inference:" so the application can recognize it consistently.
 
-10. Controlled values MUST remain unchanged internally:
+10. Highlighted actor items must remain one-to-one with the English master.
+    Preserve every person's name, official title, attendance status, and role/action.
+    Translate the descriptive wording, but never translate or alter proper names.
+
+11. Controlled values MUST remain unchanged internally:
     sentiment.label = positive / negative / neutral
     communication_risk.level = low / medium / high
     recommendations[].type = amplification / clarification /
@@ -3880,7 +3942,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.1.0"
+            "8.0.0"
     }
 
 
@@ -3896,7 +3958,7 @@ async def health():
             "ok",
 
         "version":
-            "9.1.0"
+            "8.0.0"
     }
 
 
@@ -4165,10 +4227,3 @@ async def analyze(
             "server_error",
             500
         )
-
-
-# ============================================================
-# CLOUDFLARE ASGI
-# ============================================================
-
-Default = asgi.entrypoint(app)
