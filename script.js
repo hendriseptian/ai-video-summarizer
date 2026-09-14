@@ -1,51 +1,71 @@
 /* ============================================================
-   AI MEDIA MONITORING & ANALYSIS
+   AI VIDEO SUMMARIZER
    SCRIPT.JS
    V1 UI + V2 AI ANALYSIS
+   Supports EN / ID response structure
    ============================================================ */
 
 const API_URL =
     "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
 
 let currentData = null;
+let currentAIRoot = null;
 let currentAI = null;
 let currentLanguage = "en";
 
-const videoUrlInput = document.getElementById("videoUrl");
-const analyzeButton = document.getElementById("analyzeButton");
-const statusBox = document.getElementById("status");
-const videoInfoBox = document.getElementById("videoInfo");
-const transcriptBox = document.getElementById("transcript");
+
+const videoUrlInput =
+    document.getElementById("videoUrl");
+
+const analyzeButton =
+    document.getElementById("analyzeButton");
+
+const statusBox =
+    document.getElementById("status");
+
+const videoInfoBox =
+    document.getElementById("videoInfo");
+
+const transcriptBox =
+    document.getElementById("transcript");
+
 
 /* ============================================================
    INITIALIZATION
    ============================================================ */
 
-document.addEventListener("DOMContentLoaded", function () {
+document.addEventListener(
+    "DOMContentLoaded",
+    function () {
 
-    if (analyzeButton) {
-        analyzeButton.addEventListener(
-            "click",
-            analyzeVideo
-        );
-    }
+        if (analyzeButton) {
 
-    if (videoUrlInput) {
-        videoUrlInput.addEventListener(
-            "keydown",
-            function (event) {
+            analyzeButton.addEventListener(
+                "click",
+                analyzeVideo
+            );
 
-                if (event.key === "Enter") {
-                    analyzeVideo();
+        }
+
+        if (videoUrlInput) {
+
+            videoUrlInput.addEventListener(
+                "keydown",
+                function (event) {
+
+                    if (event.key === "Enter") {
+                        analyzeVideo();
+                    }
+
                 }
+            );
 
-            }
-        );
+        }
+
+        prepareAIResultArea();
+
     }
-
-    prepareAIResultArea();
-
-});
+);
 
 
 /* ============================================================
@@ -60,19 +80,19 @@ function prepareAIResultArea() {
     if (!aiResult) {
 
         aiResult =
-            document.createElement("div");
+            document.createElement("section");
 
         aiResult.id = "aiResult";
+
+        const main =
+            document.querySelector("main");
 
         const transcriptCard =
             document.querySelector(
                 ".transcript-card"
             );
 
-        const main =
-            document.querySelector("main");
-
-        if (transcriptCard && main) {
+        if (main && transcriptCard) {
 
             main.insertBefore(
                 aiResult,
@@ -81,7 +101,9 @@ function prepareAIResultArea() {
 
         } else if (main) {
 
-            main.appendChild(aiResult);
+            main.appendChild(
+                aiResult
+            );
 
         }
 
@@ -109,7 +131,9 @@ async function analyzeVideo() {
         );
 
         return;
+
     }
+
 
     if (!isValidYouTubeUrl(url)) {
 
@@ -119,7 +143,9 @@ async function analyzeVideo() {
         );
 
         return;
+
     }
+
 
     setLoading(true);
 
@@ -128,28 +154,34 @@ async function analyzeVideo() {
         "loading"
     );
 
+
     if (videoInfoBox) {
 
-        videoInfoBox.innerHTML = `
-            <p>Loading video information...</p>
-        `;
+        videoInfoBox.innerHTML =
+            `<p>Loading video information...</p>`;
 
     }
+
 
     if (transcriptBox) {
 
-        transcriptBox.innerHTML = `
-            <p>Loading transcript...</p>
-        `;
+        transcriptBox.innerHTML =
+            `<p>Loading transcript...</p>`;
 
     }
+
 
     const aiResult =
-        document.getElementById("aiResult");
+        document.getElementById(
+            "aiResult"
+        );
 
     if (aiResult) {
+
         aiResult.innerHTML = "";
+
     }
+
 
     try {
 
@@ -170,10 +202,13 @@ async function analyzeVideo() {
                 }
             );
 
+
         const rawText =
             await response.text();
 
+
         let data;
+
 
         try {
 
@@ -183,7 +218,7 @@ async function analyzeVideo() {
         } catch (error) {
 
             console.error(
-                "Invalid JSON:",
+                "Invalid JSON response:",
                 rawText
             );
 
@@ -192,6 +227,7 @@ async function analyzeVideo() {
             );
 
         }
+
 
         if (!response.ok) {
 
@@ -204,15 +240,37 @@ async function analyzeVideo() {
 
         }
 
-        currentData = data;
+
+        currentData =
+            data;
+
+
+        /*
+         * IMPORTANT:
+         * main.py V2 returns:
+         *
+         * ai:
+         * {
+         *     en: {...},
+         *     id: {...}
+         * }
+         */
+
+        currentAIRoot =
+            extractAIData(data);
+
 
         currentAI =
-            extractAIData(data);
+            getLanguageBlock(
+                currentAIRoot,
+                currentLanguage
+            );
+
 
         if (!currentAI) {
 
             console.error(
-                "Complete server response:",
+                "AI response:",
                 data
             );
 
@@ -222,16 +280,27 @@ async function analyzeVideo() {
 
         }
 
-        renderVideoInformation(data);
 
-        renderAIAnalysis(currentAI);
+        renderVideoInformation(
+            data
+        );
 
-        renderTranscript(data);
+
+        renderAIAnalysis(
+            currentAI
+        );
+
+
+        renderTranscript(
+            data
+        );
+
 
         showStatus(
             "Analysis completed successfully.",
             "success"
         );
+
 
     } catch (error) {
 
@@ -240,11 +309,13 @@ async function analyzeVideo() {
             error
         );
 
+
         showStatus(
             error.message ||
                 "Failed to analyze video.",
             "error"
         );
+
 
         if (videoInfoBox) {
 
@@ -259,11 +330,11 @@ async function analyzeVideo() {
 
         }
 
+
         if (transcriptBox) {
 
-            transcriptBox.innerHTML = `
-                <p>Transcript unavailable.</p>
-            `;
+            transcriptBox.innerHTML =
+                `<p>Transcript unavailable.</p>`;
 
         }
 
@@ -277,138 +348,7 @@ async function analyzeVideo() {
 
 
 /* ============================================================
-   YOUTUBE VALIDATION
-   ============================================================ */
-
-function isValidYouTubeUrl(url) {
-
-    try {
-
-        const parsed =
-            new URL(url);
-
-        const host =
-            parsed.hostname
-                .toLowerCase()
-                .replace(/^www\./, "");
-
-        return (
-            host === "youtube.com" ||
-            host === "m.youtube.com" ||
-            host === "youtu.be"
-        );
-
-    } catch {
-
-        return false;
-
-    }
-
-}
-
-
-/* ============================================================
-   STATUS
-   ============================================================ */
-
-function showStatus(
-    message,
-    type
-) {
-
-    if (!statusBox) {
-        return;
-    }
-
-    statusBox.className =
-        type || "";
-
-    statusBox.textContent =
-        message || "";
-
-}
-
-
-/* ============================================================
-   LOADING
-   ============================================================ */
-
-function setLoading(isLoading) {
-
-    if (!analyzeButton) {
-        return;
-    }
-
-    if (isLoading) {
-
-        analyzeButton.disabled =
-            true;
-
-        analyzeButton.dataset.oldText =
-            analyzeButton.textContent;
-
-        analyzeButton.innerHTML = `
-            <span class="loading-container">
-                <span class="loading-spinner"></span>
-                ANALYZING...
-            </span>
-        `;
-
-    } else {
-
-        analyzeButton.disabled =
-            false;
-
-        analyzeButton.textContent =
-            analyzeButton.dataset.oldText ||
-            "ANALYZE";
-
-    }
-
-}
-
-
-/* ============================================================
-   ERROR MESSAGE
-   ============================================================ */
-
-function getErrorMessage(
-    data,
-    status
-) {
-
-    if (!data) {
-        return `Server error (${status}).`;
-    }
-
-    if (
-        typeof data.detail ===
-        "string"
-    ) {
-        return data.detail;
-    }
-
-    if (
-        typeof data.error ===
-        "string"
-    ) {
-        return data.error;
-    }
-
-    if (
-        typeof data.message ===
-        "string"
-    ) {
-        return data.message;
-    }
-
-    return `Server error (${status}).`;
-
-}
-
-
-/* ============================================================
-   EXTRACT AI DATA
+   EXTRACT AI ROOT
    ============================================================ */
 
 function extractAIData(data) {
@@ -417,56 +357,74 @@ function extractAIData(data) {
         !data ||
         typeof data !== "object"
     ) {
+
         return null;
+
     }
 
-    const candidates = [
 
-        data.ai,
+    /*
+     * Main V2 structure:
+     *
+     * data.ai.en
+     * data.ai.id
+     */
 
-        data.analysis,
-
-        data.result,
-
-        data.ai_result,
-
-        data.aiAnalysis,
-
-        data.video_analysis,
-
-        data.videoAnalysis
-
-    ];
-
-    for (
-        const candidate
-        of candidates
+    if (
+        data.ai &&
+        typeof data.ai === "object"
     ) {
 
-        if (
-            candidate &&
-            typeof candidate ===
-                "object"
-        ) {
-
-            return candidate;
-
-        }
+        return data.ai;
 
     }
+
+
+    if (
+        data.analysis &&
+        typeof data.analysis === "object"
+    ) {
+
+        return data.analysis;
+
+    }
+
+
+    if (
+        data.result &&
+        typeof data.result === "object"
+    ) {
+
+        return data.result;
+
+    }
+
+
+    if (
+        data.ai_result &&
+        typeof data.ai_result === "object"
+    ) {
+
+        return data.ai_result;
+
+    }
+
+
+    /*
+     * Fallback for older API
+     */
 
     if (
         data.summary ||
         data.key_points ||
-        data.keyPoints ||
         data.sentiment ||
-        data.main_issue ||
-        data.mainIssue
+        data.main_issue
     ) {
 
         return data;
 
     }
+
 
     return recursiveFindAI(
         data
@@ -476,7 +434,79 @@ function extractAIData(data) {
 
 
 /* ============================================================
-   RECURSIVE AI SEARCH
+   GET LANGUAGE BLOCK
+   ============================================================ */
+
+function getLanguageBlock(
+    root,
+    language
+) {
+
+    if (
+        !root ||
+        typeof root !== "object"
+    ) {
+
+        return null;
+
+    }
+
+
+    /*
+     * V2:
+     *
+     * {
+     *     en: {...},
+     *     id: {...}
+     * }
+     */
+
+    if (
+        root.en ||
+        root.id
+    ) {
+
+        if (
+            language === "id" &&
+            root.id
+        ) {
+
+            return root.id;
+
+        }
+
+
+        if (
+            language === "en" &&
+            root.en
+        ) {
+
+            return root.en;
+
+        }
+
+
+        return (
+            root.en ||
+            root.id ||
+            null
+        );
+
+    }
+
+
+    /*
+     * Older response:
+     * fields directly inside object.
+     */
+
+    return root;
+
+}
+
+
+/* ============================================================
+   RECURSIVE SEARCH
    ============================================================ */
 
 function recursiveFindAI(
@@ -488,27 +518,41 @@ function recursiveFindAI(
         !object ||
         typeof object !== "object"
     ) {
+
         return null;
+
     }
+
 
     if (depth > 10) {
+
         return null;
+
     }
 
+
     if (
-        object.summary ||
-        object.key_points ||
-        object.keyPoints ||
-        object.sentiment ||
-        object.main_issue ||
-        object.mainIssue ||
-        object.media_analysis ||
-        object.mediaAnalysis
+        object.en &&
+        object.id
     ) {
 
         return object;
 
     }
+
+
+    if (
+        object.summary ||
+        object.key_points ||
+        object.sentiment ||
+        object.main_issue ||
+        object.media_analysis
+    ) {
+
+        return object;
+
+    }
+
 
     for (
         const key of Object.keys(object)
@@ -519,8 +563,7 @@ function recursiveFindAI(
 
         if (
             value &&
-            typeof value ===
-                "object"
+            typeof value === "object"
         ) {
 
             const found =
@@ -530,12 +573,15 @@ function recursiveFindAI(
                 );
 
             if (found) {
+
                 return found;
+
             }
 
         }
 
     }
+
 
     return null;
 
@@ -543,61 +589,69 @@ function recursiveFindAI(
 
 
 /* ============================================================
-   LANGUAGE
+   LANGUAGE VALUE
    ============================================================ */
 
-function getLanguageValue(value) {
+function getLanguageValue(
+    value
+) {
 
     if (
         value === null ||
         value === undefined
     ) {
+
         return "";
+
     }
+
 
     if (
         typeof value === "string"
     ) {
+
         return value;
+
     }
+
 
     if (
         Array.isArray(value)
     ) {
+
         return value;
+
     }
+
 
     if (
         typeof value !== "object"
     ) {
+
         return String(value);
+
     }
+
 
     if (
         currentLanguage === "id" &&
         value.id !== undefined
     ) {
+
         return value.id;
+
     }
+
 
     if (
         currentLanguage === "en" &&
         value.en !== undefined
     ) {
+
         return value.en;
+
     }
 
-    if (
-        value.en !== undefined
-    ) {
-        return value.en;
-    }
-
-    if (
-        value.id !== undefined
-    ) {
-        return value.id;
-    }
 
     return value;
 
@@ -617,8 +671,11 @@ function getField(
         !object ||
         typeof object !== "object"
     ) {
+
         return null;
+
     }
+
 
     for (
         const key of keys
@@ -634,6 +691,7 @@ function getField(
         }
 
     }
+
 
     return null;
 
@@ -652,21 +710,23 @@ function renderVideoInformation(
         return;
     }
 
+
     const video =
         data.video ||
-        data.video_info ||
-        data.videoInfo ||
         {};
+
 
     const transcript =
         data.transcript ||
         {};
 
+
     const title =
-        transcript.title ||
         video.title ||
+        transcript.title ||
         data.title ||
         "Untitled Video";
+
 
     const language =
         transcript.language ||
@@ -674,113 +734,170 @@ function renderVideoInformation(
         data.language ||
         "-";
 
+
     const videoId =
         video.id ||
         data.video_id ||
-        data.videoId ||
         extractYouTubeId(
             video.url ||
             data.url ||
             videoUrlInput.value
         );
 
+
     const url =
         video.url ||
         data.url ||
         videoUrlInput.value;
 
+
     const station =
-        data.station ||
         video.station ||
+        data.station ||
         "";
+
 
     const source =
-        data.source ||
         video.source ||
+        data.source ||
         "";
+
 
     const publicationDate =
-        data.publication_date ||
-        data.publicationDate ||
         video.publication_date ||
+        data.publication_date ||
         "";
 
+
     let html = `
+
         <div class="meta-grid">
 
             <div class="meta-item">
-                <strong>Title</strong>
+
+                <strong>
+                    Title
+                </strong>
+
                 <span>
                     ${escapeHTML(title)}
                 </span>
+
             </div>
 
+
             <div class="meta-item">
-                <strong>Video ID</strong>
+
+                <strong>
+                    Video ID
+                </strong>
+
                 <span>
-                    ${escapeHTML(videoId || "-")}
+                    ${escapeHTML(
+                        videoId || "-"
+                    )}
                 </span>
+
             </div>
 
+
             <div class="meta-item">
-                <strong>Language</strong>
+
+                <strong>
+                    Language
+                </strong>
+
                 <span>
                     ${escapeHTML(language)}
                 </span>
+
             </div>
 
+
             <div class="meta-item">
-                <strong>URL</strong>
+
+                <strong>
+                    URL
+                </strong>
+
                 <span>
                     ${escapeHTML(url)}
                 </span>
+
             </div>
+
     `;
+
 
     if (station) {
 
         html += `
+
             <div class="meta-item">
-                <strong>Station</strong>
+
+                <strong>
+                    Station
+                </strong>
+
                 <span>
                     ${escapeHTML(station)}
                 </span>
+
             </div>
+
         `;
 
     }
+
 
     if (source) {
 
         html += `
+
             <div class="meta-item">
-                <strong>Source</strong>
+
+                <strong>
+                    Source
+                </strong>
+
                 <span>
                     ${escapeHTML(source)}
                 </span>
+
             </div>
+
         `;
 
     }
 
+
     if (publicationDate) {
 
         html += `
+
             <div class="meta-item">
-                <strong>Publication Date</strong>
+
+                <strong>
+                    Publication Date
+                </strong>
+
                 <span>
                     ${escapeHTML(
                         publicationDate
                     )}
                 </span>
+
             </div>
+
         `;
 
     }
 
+
     html += `
         </div>
     `;
+
 
     videoInfoBox.innerHTML =
         html;
@@ -789,7 +906,7 @@ function renderVideoInformation(
 
 
 /* ============================================================
-   AI ANALYSIS
+   RENDER AI
    ============================================================ */
 
 function renderAIAnalysis(
@@ -801,9 +918,11 @@ function renderAIAnalysis(
             "aiResult"
         );
 
+
     if (!aiResult) {
         return;
     }
+
 
     const summary =
         getField(
@@ -812,11 +931,13 @@ function renderAIAnalysis(
             "executive_summary"
         );
 
+
     const sentiment =
         getField(
             ai,
             "sentiment"
         );
+
 
     const mainIssue =
         getField(
@@ -826,12 +947,14 @@ function renderAIAnalysis(
             "isu_utama"
         );
 
+
     const keyPoints =
         getField(
             ai,
             "key_points",
             "keyPoints"
         );
+
 
     const mediaAnalysis =
         getField(
@@ -841,6 +964,7 @@ function renderAIAnalysis(
             "analisis_media"
         );
 
+
     const communicationRisk =
         getField(
             ai,
@@ -848,6 +972,7 @@ function renderAIAnalysis(
             "communicationRisk",
             "risiko_komunikasi"
         );
+
 
     const recommendations =
         getField(
@@ -857,12 +982,14 @@ function renderAIAnalysis(
             "rekomendasi"
         );
 
+
     const criticalAnalysis =
         getField(
             ai,
             "critical_analysis",
             "criticalAnalysis"
         );
+
 
     const implications =
         getField(
@@ -871,12 +998,14 @@ function renderAIAnalysis(
             "implication"
         );
 
+
     const takeaways =
         getField(
             ai,
             "takeaways",
             "key_takeaways"
         );
+
 
     aiResult.innerHTML = `
 
@@ -892,8 +1021,11 @@ function renderAIAnalysis(
                             ? "active"
                             : ""
                     }">
+
                     EN
+
                 </button>
+
 
                 <button
                     type="button"
@@ -903,14 +1035,19 @@ function renderAIAnalysis(
                             ? "active"
                             : ""
                     }">
+
                     ID
+
                 </button>
+
 
                 <button
                     type="button"
                     id="exportPdfButton"
                     class="export-btn">
+
                     Export PDF
+
                 </button>
 
             </div>
@@ -924,39 +1061,48 @@ function renderAIAnalysis(
                 summary
             )}
 
+
             ${createSentimentCard(
                 sentiment
             )}
+
 
             ${createIssueCard(
                 mainIssue
             )}
 
+
             ${createKeyPointsCard(
                 keyPoints
             )}
+
 
             ${createMediaAnalysisCard(
                 mediaAnalysis
             )}
 
+
             ${createRiskCard(
                 communicationRisk
             )}
 
+
             ${createRecommendationsCard(
                 recommendations
             )}
+
 
             ${createTextCard(
                 "Critical Analysis",
                 criticalAnalysis
             )}
 
+
             ${createTextCard(
                 "Implications",
                 implications
             )}
+
 
             ${createTakeawaysCard(
                 takeaways
@@ -965,6 +1111,7 @@ function renderAIAnalysis(
         </div>
 
     `;
+
 
     attachResultEvents();
 
@@ -983,16 +1130,28 @@ function createSummaryCard(
         return "";
     }
 
+
     return `
-        <article class="analysis-card full-width">
 
-            <h3>Summary</h3>
+        <article class="
+            analysis-card
+            full-width
+        ">
 
-            <div class="summary-text">
+            <h3>
+                Summary
+            </h3>
+
+            <div class="
+                summary-text
+            ">
+
                 ${renderText(value)}
+
             </div>
 
         </article>
+
     `;
 
 }
@@ -1010,8 +1169,10 @@ function createSentimentCard(
         return "";
     }
 
+
     let text =
         getLanguageValue(value);
+
 
     if (
         typeof text === "object"
@@ -1026,14 +1187,18 @@ function createSentimentCard(
 
     }
 
+
     text =
         String(text);
+
 
     const normalized =
         text.toLowerCase();
 
+
     let className =
         "sentiment-neutral";
+
 
     if (
         normalized.includes(
@@ -1047,7 +1212,10 @@ function createSentimentCard(
         className =
             "sentiment-positive";
 
-    } else if (
+    }
+
+
+    if (
         normalized.includes(
             "negative"
         ) ||
@@ -1061,19 +1229,28 @@ function createSentimentCard(
 
     }
 
-    return `
-        <article class="analysis-card">
 
-            <h3>Sentiment</h3>
+    return `
+
+        <article class="
+            analysis-card
+        ">
+
+            <h3>
+                Sentiment
+            </h3>
 
             <span class="
                 sentiment-badge
                 ${className}
             ">
+
                 ${escapeHTML(text)}
+
             </span>
 
         </article>
+
     `;
 
 }
@@ -1091,16 +1268,87 @@ function createIssueCard(
         return "";
     }
 
+
+    if (
+        typeof value === "object" &&
+        !Array.isArray(value)
+    ) {
+
+        const title =
+            getField(
+                value,
+                "title"
+            );
+
+
+        const description =
+            getField(
+                value,
+                "description"
+            );
+
+
+        return `
+
+            <article class="
+                analysis-card
+            ">
+
+                <h3>
+                    Isu Utama
+                </h3>
+
+                <div class="
+                    main-issue
+                ">
+
+                    ${
+                        title
+                            ? `
+                                <strong>
+                                    ${renderText(
+                                        title
+                                    )}
+                                </strong>
+                                <br>
+                              `
+                            : ""
+                    }
+
+                    ${renderText(
+                        description ||
+                        value
+                    )}
+
+                </div>
+
+            </article>
+
+        `;
+
+    }
+
+
     return `
-        <article class="analysis-card">
 
-            <h3>Isu Utama</h3>
+        <article class="
+            analysis-card
+        ">
 
-            <div class="main-issue">
+            <h3>
+                Isu Utama
+            </h3>
+
+            <div class="
+                main-issue
+            ">
+
                 ${renderText(value)}
+
             </div>
 
         </article>
+
     `;
 
 }
@@ -1118,15 +1366,24 @@ function createKeyPointsCard(
         return "";
     }
 
+
     const items =
         normalizeArray(value);
 
+
     return `
-        <article class="analysis-card">
 
-            <h3>Key Points</h3>
+        <article class="
+            analysis-card
+        ">
 
-            <ul class="key-points-list">
+            <h3>
+                Key Points
+            </h3>
+
+            <ul class="
+                key-points-list
+            ">
 
                 ${items
                     .map(
@@ -1143,6 +1400,7 @@ function createKeyPointsCard(
             </ul>
 
         </article>
+
     `;
 
 }
@@ -1160,25 +1418,31 @@ function createMediaAnalysisCard(
         return "";
     }
 
+
     if (
         typeof value !== "object" ||
         Array.isArray(value)
     ) {
 
         return `
+
             <article class="
                 analysis-card
                 full-width
             ">
 
-                <h3>Analisis Media</h3>
+                <h3>
+                    Analisis Media
+                </h3>
 
                 ${renderText(value)}
 
             </article>
+
         `;
 
     }
+
 
     const fields = [
 
@@ -1231,7 +1495,9 @@ function createMediaAnalysisCard(
 
     ];
 
+
     let html = "";
+
 
     for (
         const [
@@ -1246,12 +1512,14 @@ function createMediaAnalysisCard(
                 ...keys
             );
 
+
         if (
             field !== null &&
             field !== undefined
         ) {
 
             html += `
+
                 <div class="
                     media-analysis-item
                 ">
@@ -1265,24 +1533,32 @@ function createMediaAnalysisCard(
                     )}
 
                 </div>
+
             `;
 
         }
 
     }
 
+
     if (!html) {
+
         html =
             renderObject(value);
+
     }
 
+
     return `
+
         <article class="
             analysis-card
             full-width
         ">
 
-            <h3>Analisis Media</h3>
+            <h3>
+                Analisis Media
+            </h3>
 
             <div class="
                 media-analysis
@@ -1293,13 +1569,14 @@ function createMediaAnalysisCard(
             </div>
 
         </article>
+
     `;
 
 }
 
 
 /* ============================================================
-   COMMUNICATION RISK
+   RISK
    ============================================================ */
 
 function createRiskCard(
@@ -1310,9 +1587,11 @@ function createRiskCard(
         return "";
     }
 
+
     let level = "";
     let reason = "";
     let escalation = "";
+
 
     if (
         typeof value === "object" &&
@@ -1328,12 +1607,14 @@ function createRiskCard(
                 "tingkat"
             );
 
+
         reason =
             getField(
                 value,
                 "reason",
                 "alasan"
             );
+
 
         escalation =
             getField(
@@ -1349,12 +1630,13 @@ function createRiskCard(
 
     }
 
+
     let levelText =
         getLanguageValue(level);
 
+
     if (
-        typeof levelText ===
-        "object"
+        typeof levelText === "object"
     ) {
 
         levelText =
@@ -1365,35 +1647,28 @@ function createRiskCard(
 
     }
 
+
     const normalized =
         String(levelText)
             .toLowerCase();
 
+
     let riskClass =
         "risk-low";
 
+
     if (
-        normalized.includes(
-            "high"
-        ) ||
-        normalized.includes(
-            "tinggi"
-        )
+        normalized.includes("high") ||
+        normalized.includes("tinggi")
     ) {
 
         riskClass =
             "risk-high";
 
     } else if (
-        normalized.includes(
-            "medium"
-        ) ||
-        normalized.includes(
-            "moderate"
-        ) ||
-        normalized.includes(
-            "sedang"
-        )
+        normalized.includes("medium") ||
+        normalized.includes("moderate") ||
+        normalized.includes("sedang")
     ) {
 
         riskClass =
@@ -1401,21 +1676,31 @@ function createRiskCard(
 
     }
 
-    return `
-        <article class="analysis-card">
 
-            <h3>Risiko Komunikasi</h3>
+    return `
+
+        <article class="
+            analysis-card
+        ">
+
+            <h3>
+                Risiko Komunikasi
+            </h3>
+
 
             <span class="
                 risk-badge
                 ${riskClass}
             ">
+
                 ${escapeHTML(
                     String(
                         levelText || "-"
                     )
                 )}
+
             </span>
+
 
             ${
                 reason
@@ -1425,6 +1710,7 @@ function createRiskCard(
                                 margin-top:10px;
                             "
                         >
+
                             <strong>
                                 Alasan
                             </strong>
@@ -1432,10 +1718,12 @@ function createRiskCard(
                             ${renderText(
                                 reason
                             )}
+
                         </div>
                     `
                     : ""
             }
+
 
             ${
                 escalation
@@ -1445,6 +1733,7 @@ function createRiskCard(
                                 margin-top:10px;
                             "
                         >
+
                             <strong>
                                 Potensi Eskalasi
                             </strong>
@@ -1452,12 +1741,14 @@ function createRiskCard(
                             ${renderText(
                                 escalation
                             )}
+
                         </div>
                     `
                     : ""
             }
 
         </article>
+
     `;
 
 }
@@ -1475,25 +1766,68 @@ function createRecommendationsCard(
         return "";
     }
 
+
     if (
-        typeof value !== "object" ||
         Array.isArray(value)
     ) {
 
         return `
+
             <article class="
                 analysis-card
                 full-width
             ">
 
-                <h3>Rekomendasi</h3>
+                <h3>
+                    Rekomendasi
+                </h3>
+
+                <ul>
+
+                    ${value
+                        .map(
+                            item => `
+                                <li>
+                                    ${renderText(
+                                        item
+                                    )}
+                                </li>
+                            `
+                        )
+                        .join("")}
+
+                </ul>
+
+            </article>
+
+        `;
+
+    }
+
+
+    if (
+        typeof value !== "object"
+    ) {
+
+        return `
+
+            <article class="
+                analysis-card
+                full-width
+            ">
+
+                <h3>
+                    Rekomendasi
+                </h3>
 
                 ${renderText(value)}
 
             </article>
+
         `;
 
     }
+
 
     const fields = [
 
@@ -1540,7 +1874,9 @@ function createRecommendationsCard(
 
     ];
 
+
     let html = "";
+
 
     for (
         const [
@@ -1555,12 +1891,14 @@ function createRecommendationsCard(
                 ...keys
             );
 
+
         if (
             field !== null &&
             field !== undefined
         ) {
 
             html += `
+
                 <div class="
                     recommendation-item
                 ">
@@ -1574,33 +1912,32 @@ function createRecommendationsCard(
                     )}
 
                 </div>
+
             `;
 
         }
 
     }
 
+
     if (!html) {
 
-        html = `
-            <div class="
-                recommendation-item
-            ">
-
-                ${renderObject(value)}
-
-            </div>
-        `;
+        html =
+            renderObject(value);
 
     }
 
+
     return `
+
         <article class="
             analysis-card
             full-width
         ">
 
-            <h3>Rekomendasi</h3>
+            <h3>
+                Rekomendasi
+            </h3>
 
             <div class="
                 recommendations
@@ -1611,6 +1948,7 @@ function createRecommendationsCard(
             </div>
 
         </article>
+
     `;
 
 }
@@ -1629,8 +1967,12 @@ function createTextCard(
         return "";
     }
 
+
     return `
-        <article class="analysis-card">
+
+        <article class="
+            analysis-card
+        ">
 
             <h3>
                 ${escapeHTML(title)}
@@ -1639,6 +1981,7 @@ function createTextCard(
             ${renderText(value)}
 
         </article>
+
     `;
 
 }
@@ -1656,19 +1999,28 @@ function createTakeawaysCard(
         return "";
     }
 
+
     return `
+
         <article class="
             analysis-card
             full-width
         ">
 
-            <h3>Takeaways</h3>
+            <h3>
+                Takeaways
+            </h3>
 
-            <div class="takeaways">
+            <div class="
+                takeaways
+            ">
+
                 ${renderText(value)}
+
             </div>
 
         </article>
+
     `;
 
 }
@@ -1685,15 +2037,18 @@ function attachResultEvents() {
             "languageEn"
         );
 
+
     const idButton =
         document.getElementById(
             "languageId"
         );
 
+
     const exportButton =
         document.getElementById(
             "exportPdfButton"
         );
+
 
     if (enButton) {
 
@@ -1701,7 +2056,16 @@ function attachResultEvents() {
             "click",
             function () {
 
-                currentLanguage = "en";
+                currentLanguage =
+                    "en";
+
+
+                currentAI =
+                    getLanguageBlock(
+                        currentAIRoot,
+                        currentLanguage
+                    );
+
 
                 renderAIAnalysis(
                     currentAI
@@ -1711,6 +2075,7 @@ function attachResultEvents() {
         );
 
     }
+
 
     if (idButton) {
 
@@ -1718,7 +2083,16 @@ function attachResultEvents() {
             "click",
             function () {
 
-                currentLanguage = "id";
+                currentLanguage =
+                    "id";
+
+
+                currentAI =
+                    getLanguageBlock(
+                        currentAIRoot,
+                        currentLanguage
+                    );
+
 
                 renderAIAnalysis(
                     currentAI
@@ -1728,6 +2102,7 @@ function attachResultEvents() {
         );
 
     }
+
 
     if (exportButton) {
 
@@ -1749,21 +2124,22 @@ function renderText(
     value
 ) {
 
-    value =
-        getLanguageValue(value);
-
     if (
         value === null ||
         value === undefined
     ) {
+
         return "";
+
     }
+
 
     if (
         Array.isArray(value)
     ) {
 
         return `
+
             <ul>
 
                 ${value
@@ -1779,9 +2155,11 @@ function renderText(
                     .join("")}
 
             </ul>
+
         `;
 
     }
+
 
     if (
         typeof value === "object"
@@ -1793,8 +2171,10 @@ function renderText(
 
     }
 
+
     const text =
         String(value);
+
 
     if (
         /^Inference:/i.test(text)
@@ -1806,21 +2186,29 @@ function renderText(
                 ""
             );
 
+
         return `
+
             <div class="inference">
 
                 <span class="
                     inference-label
                 ">
+
                     Inference:
+
                 </span>
 
-                ${escapeHTML(clean)}
+                ${escapeHTML(
+                    clean
+                )}
 
             </div>
+
         `;
 
     }
+
 
     return escapeHTML(
         text
@@ -1851,7 +2239,9 @@ function renderObject(
 
     }
 
+
     let html = "";
+
 
     for (
         const [
@@ -1861,6 +2251,7 @@ function renderObject(
     ) {
 
         html += `
+
             <div class="
                 media-analysis-item
             ">
@@ -1876,9 +2267,11 @@ function renderObject(
                 )}
 
             </div>
+
         `;
 
     }
+
 
     return html;
 
@@ -1896,8 +2289,11 @@ function normalizeArray(
     if (
         Array.isArray(value)
     ) {
+
         return value;
+
     }
+
 
     if (
         typeof value === "object" &&
@@ -1910,13 +2306,17 @@ function normalizeArray(
             value.list ||
             value.values;
 
+
         if (
             Array.isArray(possible)
         ) {
+
             return possible;
+
         }
 
     }
+
 
     if (
         typeof value === "string"
@@ -1936,6 +2336,7 @@ function normalizeArray(
             .filter(Boolean);
 
     }
+
 
     return [value];
 
@@ -1980,9 +2381,11 @@ function renderTranscript(
         return;
     }
 
+
     const transcriptData =
         data.transcript ||
         {};
+
 
     let segments =
         transcriptData.transcript ||
@@ -1991,12 +2394,13 @@ function renderTranscript(
         data.segments ||
         [];
 
+
     if (
-        typeof segments ===
-        "string"
+        typeof segments === "string"
     ) {
 
         transcriptBox.innerHTML = `
+
             <div class="
                 transcript-row
             ">
@@ -2016,26 +2420,26 @@ function renderTranscript(
                 </div>
 
             </div>
+
         `;
 
         return;
 
     }
+
 
     if (
         !Array.isArray(segments) ||
         segments.length === 0
     ) {
 
-        transcriptBox.innerHTML = `
-            <p>
-                Transcript unavailable.
-            </p>
-        `;
+        transcriptBox.innerHTML =
+            `<p>Transcript unavailable.</p>`;
 
         return;
 
     }
+
 
     transcriptBox.innerHTML =
         segments
@@ -2053,13 +2457,16 @@ function renderTranscript(
                               segment.transcript ||
                               "";
 
+
                     const start =
                         typeof segment ===
                         "object"
                             ? segment.start
                             : index * 2;
 
+
                     return `
+
                         <div class="
                             transcript-row
                         ">
@@ -2067,20 +2474,26 @@ function renderTranscript(
                             <div class="
                                 transcript-time
                             ">
+
                                 ${formatTimestamp(
                                     start
                                 )}
+
                             </div>
+
 
                             <div class="
                                 transcript-text
                             ">
+
                                 ${escapeHTML(
                                     text
                                 )}
+
                             </div>
 
                         </div>
+
                     `;
 
                 }
@@ -2106,22 +2519,27 @@ function formatTimestamp(
             )
         );
 
+
     const hours =
         Math.floor(
             seconds / 3600
         );
+
 
     const minutes =
         Math.floor(
             (seconds % 3600) / 60
         );
 
+
     const secs =
         seconds % 60;
+
 
     if (hours > 0) {
 
         return [
+
             String(hours)
                 .padStart(2, "0"),
 
@@ -2135,7 +2553,9 @@ function formatTimestamp(
 
     }
 
+
     return [
+
         String(minutes)
             .padStart(2, "0"),
 
@@ -2159,14 +2579,17 @@ function extractYouTubeId(
         return "";
     }
 
+
     try {
 
         const parsed =
             new URL(url);
 
+
         const host =
             parsed.hostname
                 .toLowerCase();
+
 
         if (
             host.includes(
@@ -2182,6 +2605,7 @@ function extractYouTubeId(
                 .trim();
 
         }
+
 
         if (
             host.includes(
@@ -2202,6 +2626,7 @@ function extractYouTubeId(
 
     }
 
+
     return "";
 
 }
@@ -2219,8 +2644,11 @@ function escapeHTML(
         value === null ||
         value === undefined
     ) {
+
         return "";
+
     }
+
 
     return String(value)
         .replace(
@@ -2248,12 +2676,15 @@ function escapeHTML(
 
 
 /* ============================================================
-   EXPORT PDF
+   PDF EXPORT
    ============================================================ */
 
 async function exportPDF() {
 
-    if (!currentData || !currentAI) {
+    if (
+        !currentData ||
+        !currentAIRoot
+    ) {
 
         showStatus(
             "No analysis available to export.",
@@ -2263,6 +2694,7 @@ async function exportPDF() {
         return;
 
     }
+
 
     if (
         !window.jspdf ||
@@ -2278,11 +2710,13 @@ async function exportPDF() {
 
     }
 
+
     try {
 
         const {
             jsPDF
         } = window.jspdf;
+
 
         const pdf =
             new jsPDF({
@@ -2296,15 +2730,26 @@ async function exportPDF() {
                     "a4"
             });
 
+
+        const ai =
+            getLanguageBlock(
+                currentAIRoot,
+                currentLanguage
+            );
+
+
         const transcript =
             currentData.transcript ||
             {};
 
+
         const title =
             transcript.title ||
-            "AI Media Monitoring Analysis";
+            "AI Video Analysis";
+
 
         let y = 18;
+
 
         pdf.setTextColor(
             23,
@@ -2312,27 +2757,34 @@ async function exportPDF() {
             51
         );
 
+
         pdf.setFontSize(17);
+
 
         pdf.setFont(
             "helvetica",
             "bold"
         );
 
+
         pdf.text(
-            "AI Media Monitoring & Analysis",
+            "AI Video Summarizer",
             15,
             y
         );
 
+
         y += 8;
 
+
         pdf.setFontSize(11);
+
 
         pdf.setFont(
             "helvetica",
             "normal"
         );
+
 
         const titleLines =
             pdf.splitTextToSize(
@@ -2340,21 +2792,18 @@ async function exportPDF() {
                 178
             );
 
+
         pdf.text(
             titleLines,
             15,
             y
         );
 
+
         y +=
             titleLines.length * 5 +
             5;
 
-        pdf.setDrawColor(
-            210,
-            214,
-            220
-        );
 
         pdf.line(
             15,
@@ -2363,14 +2812,16 @@ async function exportPDF() {
             y
         );
 
+
         y += 8;
+
 
         const sections = [
 
             [
                 "Summary",
                 getField(
-                    currentAI,
+                    ai,
                     "summary",
                     "executive_summary"
                 )
@@ -2379,7 +2830,7 @@ async function exportPDF() {
             [
                 "Sentiment",
                 getField(
-                    currentAI,
+                    ai,
                     "sentiment"
                 )
             ],
@@ -2387,7 +2838,7 @@ async function exportPDF() {
             [
                 "Isu Utama",
                 getField(
-                    currentAI,
+                    ai,
                     "main_issue",
                     "mainIssue",
                     "isu_utama"
@@ -2397,7 +2848,7 @@ async function exportPDF() {
             [
                 "Key Points",
                 getField(
-                    currentAI,
+                    ai,
                     "key_points",
                     "keyPoints"
                 )
@@ -2406,7 +2857,7 @@ async function exportPDF() {
             [
                 "Analisis Media",
                 getField(
-                    currentAI,
+                    ai,
                     "media_analysis",
                     "mediaAnalysis",
                     "analisis_media"
@@ -2416,7 +2867,7 @@ async function exportPDF() {
             [
                 "Risiko Komunikasi",
                 getField(
-                    currentAI,
+                    ai,
                     "communication_risk",
                     "communicationRisk",
                     "risiko_komunikasi"
@@ -2426,7 +2877,7 @@ async function exportPDF() {
             [
                 "Rekomendasi",
                 getField(
-                    currentAI,
+                    ai,
                     "recommendations",
                     "recommendation",
                     "rekomendasi"
@@ -2436,7 +2887,7 @@ async function exportPDF() {
             [
                 "Critical Analysis",
                 getField(
-                    currentAI,
+                    ai,
                     "critical_analysis",
                     "criticalAnalysis"
                 )
@@ -2445,7 +2896,7 @@ async function exportPDF() {
             [
                 "Implications",
                 getField(
-                    currentAI,
+                    ai,
                     "implications",
                     "implication"
                 )
@@ -2454,13 +2905,14 @@ async function exportPDF() {
             [
                 "Takeaways",
                 getField(
-                    currentAI,
+                    ai,
                     "takeaways",
                     "key_takeaways"
                 )
             ]
 
         ];
+
 
         for (
             const [
@@ -2474,24 +2926,27 @@ async function exportPDF() {
                 value === undefined ||
                 value === ""
             ) {
+
                 continue;
+
             }
+
 
             y =
                 addPDFSection(
                     pdf,
                     sectionTitle,
-                    getLanguageValue(
-                        value
-                    ),
+                    value,
                     y
                 );
 
         }
 
+
         const pageCount =
             pdf.internal
                 .getNumberOfPages();
+
 
         for (
             let page = 1;
@@ -2499,9 +2954,7 @@ async function exportPDF() {
             page++
         ) {
 
-            pdf.setPage(
-                page
-            );
+            pdf.setPage(page);
 
             pdf.setFontSize(8);
 
@@ -2517,33 +2970,34 @@ async function exportPDF() {
             );
 
             pdf.text(
-                `AI Media Monitoring & Analysis — Page ${page} of ${pageCount}`,
+                `AI Video Summarizer — Page ${page} of ${pageCount}`,
                 15,
                 287
             );
 
         }
 
-        const fileName =
-            sanitizeFileName(
-                title
-            );
 
         pdf.save(
-            `${fileName}_AI_Analysis.pdf`
+            `${sanitizeFileName(
+                title
+            )}_AI_Analysis.pdf`
         );
+
 
         showStatus(
             "PDF exported successfully.",
             "success"
         );
 
+
     } catch (error) {
 
         console.error(
-            "PDF error:",
+            "PDF export error:",
             error
         );
+
 
         showStatus(
             "Failed to export PDF.",
@@ -2574,11 +3028,6 @@ function addPDFSection(
 
     }
 
-    pdf.setTextColor(
-        23,
-        32,
-        51
-    );
 
     pdf.setFontSize(12);
 
@@ -2587,13 +3036,23 @@ function addPDFSection(
         "bold"
     );
 
+
+    pdf.setTextColor(
+        23,
+        32,
+        51
+    );
+
+
     pdf.text(
         title,
         15,
         y
     );
 
+
     y += 6;
+
 
     pdf.setFontSize(9);
 
@@ -2602,22 +3061,26 @@ function addPDFSection(
         "normal"
     );
 
+
     pdf.setTextColor(
         71,
         84,
         103
     );
 
+
     const text =
         valueToPlainText(
             value
         );
+
 
     const lines =
         pdf.splitTextToSize(
             text,
             178
         );
+
 
     for (
         const line
@@ -2630,20 +3093,8 @@ function addPDFSection(
 
             y = 18;
 
-            pdf.setFontSize(9);
-
-            pdf.setFont(
-                "helvetica",
-                "normal"
-            );
-
-            pdf.setTextColor(
-                71,
-                84,
-                103
-            );
-
         }
+
 
         pdf.text(
             line,
@@ -2651,9 +3102,11 @@ function addPDFSection(
             y
         );
 
+
         y += 4.5;
 
     }
+
 
     return y + 5;
 
@@ -2661,7 +3114,7 @@ function addPDFSection(
 
 
 /* ============================================================
-   VALUE TO PLAIN TEXT
+   VALUE TO TEXT
    ============================================================ */
 
 function valueToPlainText(
@@ -2672,8 +3125,11 @@ function valueToPlainText(
         value === null ||
         value === undefined
     ) {
+
         return "";
+
     }
+
 
     if (
         Array.isArray(value)
@@ -2690,6 +3146,7 @@ function valueToPlainText(
             .join("\n");
 
     }
+
 
     if (
         typeof value === "object"
@@ -2708,6 +3165,7 @@ function valueToPlainText(
         .join("\n");
 
     }
+
 
     return String(value);
 
@@ -2742,26 +3200,5 @@ function sanitizeFileName(
 
 
 /* ============================================================
-   KEYBOARD SHORTCUT
-   ============================================================ */
-
-document.addEventListener(
-    "keydown",
-    function (event) {
-
-        if (
-            event.ctrlKey &&
-            event.key === "Enter"
-        ) {
-
-            analyzeVideo();
-
-        }
-
-    }
-);
-
-
-/* ============================================================
-   END OF SCRIPT
+   END
    ============================================================ */
