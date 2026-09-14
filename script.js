@@ -1,131 +1,918 @@
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
 
-    // ==========================================
-    // ELEMENT
-    // ==========================================
+        // ==================================================
+        // ELEMENT
+        // ==================================================
 
-    const videoUrlInput =
-        document.getElementById("videoUrl");
-
-    const analyzeButton =
-        document.getElementById("analyzeButton");
-
-    const statusElement =
-        document.getElementById("status");
-
-
-    // ==========================================
-    // API
-    // ==========================================
-
-    const API_URL =
-        "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
-
-
-    // ==========================================
-    // CURRENT DATA
-    // ==========================================
-
-    let currentLanguage = "en";
-
-    let currentAIData = null;
-
-    let currentVideoData = null;
-
-
-    // ==========================================
-    // FORMAT TIMESTAMP
-    // ==========================================
-
-    function formatTime(seconds) {
-
-        seconds = Math.floor(
-            Number(seconds) || 0
-        );
-
-        const hours =
-            Math.floor(seconds / 3600);
-
-        const minutes =
-            Math.floor(
-                (seconds % 3600) / 60
+        const videoUrlInput =
+            document.getElementById(
+                "videoUrl"
             );
 
-        const secs =
-            seconds % 60;
+        const analyzeButton =
+            document.getElementById(
+                "analyzeButton"
+            );
+
+        const statusElement =
+            document.getElementById(
+                "status"
+            );
 
 
-        if (hours > 0) {
+        // ==================================================
+        // API
+        // ==================================================
+
+        const API_URL =
+            "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
+
+
+        // ==================================================
+        // CURRENT DATA
+        // ==================================================
+
+        let currentLanguage =
+            "en";
+
+        let currentAIData =
+            null;
+
+        let currentVideoData =
+            null;
+
+
+        // ==================================================
+        // FORMAT TIME
+        // ==================================================
+
+        function formatTime(
+            seconds
+        ) {
+
+            seconds =
+                Math.floor(
+                    Number(
+                        seconds
+                    ) || 0
+                );
+
+
+            const hours =
+                Math.floor(
+                    seconds / 3600
+                );
+
+
+            const minutes =
+                Math.floor(
+                    (seconds % 3600) / 60
+                );
+
+
+            const secs =
+                seconds % 60;
+
+
+            if (
+                hours > 0
+            ) {
+
+                return (
+
+                    String(
+                        hours
+                    ).padStart(
+                        2,
+                        "0"
+                    )
+
+                    +
+
+                    ":"
+
+                    +
+
+                    String(
+                        minutes
+                    ).padStart(
+                        2,
+                        "0"
+                    )
+
+                    +
+
+                    ":"
+
+                    +
+
+                    String(
+                        secs
+                    ).padStart(
+                        2,
+                        "0"
+                    )
+                );
+
+            }
+
 
             return (
-                String(hours).padStart(2, "0") +
-                ":" +
-                String(minutes).padStart(2, "0") +
-                ":" +
-                String(secs).padStart(2, "0")
+
+                String(
+                    minutes
+                ).padStart(
+                    2,
+                    "0"
+                )
+
+                +
+
+                ":"
+
+                +
+
+                String(
+                    secs
+                ).padStart(
+                    2,
+                    "0"
+                )
+            );
+        }
+
+
+        // ==================================================
+        // ESCAPE HTML
+        // ==================================================
+
+        function escapeHTML(
+            text
+        ) {
+
+            return String(
+                text ?? ""
+            )
+
+                .replace(
+                    /&/g,
+                    "&amp;"
+                )
+
+                .replace(
+                    /</g,
+                    "&lt;"
+                )
+
+                .replace(
+                    />/g,
+                    "&gt;"
+                )
+
+                .replace(
+                    /"/g,
+                    "&quot;"
+                )
+
+                .replace(
+                    /'/g,
+                    "&#039;"
+                );
+        }
+
+
+        // ==================================================
+        // NORMALIZE ARRAY
+        // ==================================================
+
+        function normalizeArray(
+            value
+        ) {
+
+            if (
+                !Array.isArray(
+                    value
+                )
+            ) {
+
+                return [];
+
+            }
+
+
+            return value
+                .map(
+                    item =>
+                        String(
+                            item ?? ""
+                        ).trim()
+                )
+                .filter(
+                    item =>
+                        item.length > 0
+                );
+        }
+
+
+        // ==================================================
+        // GET CURRENT LANGUAGE DATA
+        // ==================================================
+
+        function getLanguageData() {
+
+            if (
+                !currentAIData
+            ) {
+
+                return null;
+
+            }
+
+
+            return (
+
+                currentAIData[
+                    currentLanguage
+                ]
+
+                ||
+
+                currentAIData.en
+
+                ||
+
+                currentAIData.id
+
+                ||
+
+                null
+            );
+        }
+
+
+        // ==================================================
+        // GET TRANSCRIPT DATA
+        // ==================================================
+
+        function getTranscriptData(
+            data
+        ) {
+
+            if (
+                !data
+            ) {
+
+                return {
+
+                    title:
+                        "",
+
+                    language:
+                        "",
+
+                    segments:
+                        []
+                };
+
+            }
+
+
+            const raw =
+                data.transcript;
+
+
+            // ----------------------------------------------
+            // NEW BACKEND FORMAT
+            //
+            // data.transcript.title
+            // data.transcript.language
+            // data.transcript.transcript
+            // ----------------------------------------------
+
+            if (
+                raw
+                &&
+                !Array.isArray(
+                    raw
+                )
+                &&
+                Array.isArray(
+                    raw.transcript
+                )
+            ) {
+
+                return {
+
+                    title:
+                        raw.title
+                        ||
+                        data.title
+                        ||
+                        "Untitled Video",
+
+                    language:
+                        raw.language
+                        ||
+                        data.language
+                        ||
+                        "-",
+
+                    segments:
+                        raw.transcript
+                };
+
+            }
+
+
+            // ----------------------------------------------
+            // OLD / FALLBACK FORMAT
+            //
+            // data.transcript = []
+            // ----------------------------------------------
+
+            if (
+                Array.isArray(
+                    raw
+                )
+            ) {
+
+                return {
+
+                    title:
+                        data.title
+                        ||
+                        "Untitled Video",
+
+                    language:
+                        data.language
+                        ||
+                        "-",
+
+                    segments:
+                        raw
+                };
+
+            }
+
+
+            return {
+
+                title:
+                    data.title
+                    ||
+                    "Untitled Video",
+
+                language:
+                    data.language
+                    ||
+                    "-",
+
+                segments:
+                    []
+            };
+        }
+
+
+        // ==================================================
+        // LANGUAGE SELECTOR
+        // ==================================================
+
+        function createLanguageSelector() {
+
+            return `
+
+                <select
+                    id="languageSelector"
+                    aria-label="Analysis language"
+                    style="
+                        padding: 7px 10px;
+                        border-radius: 7px;
+                        border: 1px solid #c7cdd4;
+                        background: #ffffff;
+                        color: #20262e;
+                        cursor: pointer;
+                        font-size: 13px;
+                        font-weight: 600;
+                        outline: none;
+                    "
+                >
+
+                    <option
+                        value="en"
+                        ${
+                            currentLanguage === "en"
+                                ? "selected"
+                                : ""
+                        }
+                    >
+                        EN
+                    </option>
+
+                    <option
+                        value="id"
+                        ${
+                            currentLanguage === "id"
+                                ? "selected"
+                                : ""
+                        }
+                    >
+                        ID
+                    </option>
+
+                </select>
+
+            `;
+        }
+
+
+        // ==================================================
+        // SECTION TITLE
+        // ==================================================
+
+        function sectionTitle(
+            number,
+            title,
+            description
+        ) {
+
+            return `
+
+                <div
+                    style="
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 12px;
+                        margin-bottom: 18px;
+                    "
+                >
+
+                    <div
+                        style="
+                            min-width: 32px;
+                            height: 32px;
+                            border-radius: 7px;
+                            background: #111827;
+                            color: #ffffff;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 12px;
+                            font-weight: 700;
+                        "
+                    >
+                        ${number}
+                    </div>
+
+                    <div>
+
+                        <div
+                            style="
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: #18212b;
+                                letter-spacing: 0.1px;
+                            "
+                        >
+                            ${title}
+                        </div>
+
+                        ${
+                            description
+                                ? `
+                                    <div
+                                        style="
+                                            margin-top: 3px;
+                                            font-size: 12px;
+                                            color: #697586;
+                                        "
+                                    >
+                                        ${description}
+                                    </div>
+                                `
+                                : ""
+                        }
+
+                    </div>
+
+                </div>
+
+            `;
+        }
+
+
+        // ==================================================
+        // CREATE LIST
+        // ==================================================
+
+        function createNumberedList(
+            items,
+            type
+        ) {
+
+            if (
+                !items ||
+                items.length === 0
+            ) {
+
+                return `
+
+                    <div
+                        style="
+                            padding: 14px 16px;
+                            background: #f8fafc;
+                            border: 1px solid #e5e7eb;
+                            border-radius: 8px;
+                            color: #6b7280;
+                            font-size: 13px;
+                        "
+                    >
+                        No information available.
+                    </div>
+
+                `;
+            }
+
+
+            let html = "";
+
+
+            items.forEach(
+                (
+                    item,
+                    index
+                ) => {
+
+                    const number =
+                        String(
+                            index + 1
+                        ).padStart(
+                            2,
+                            "0"
+                        );
+
+
+                    let background =
+                        "#ffffff";
+
+                    let border =
+                        "#e5e7eb";
+
+
+                    if (
+                        type ===
+                        "critical"
+                    ) {
+
+                        background =
+                            "#fffaf5";
+
+                        border =
+                            "#f1dfc7";
+                    }
+
+
+                    if (
+                        type ===
+                        "implication"
+                    ) {
+
+                        background =
+                            "#f8fafc";
+
+                        border =
+                            "#dfe5ec";
+                    }
+
+
+                    if (
+                        type ===
+                        "takeaway"
+                    ) {
+
+                        background =
+                            "#f8fafc";
+
+                        border =
+                            "#dfe5ec";
+                    }
+
+
+                    html += `
+
+                        <div
+                            style="
+                                display: flex;
+                                gap: 14px;
+                                padding: 14px 15px;
+                                margin-bottom: 9px;
+                                background: ${background};
+                                border: 1px solid ${border};
+                                border-radius: 8px;
+                                box-sizing: border-box;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    min-width: 28px;
+                                    color: #6b7280;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    padding-top: 1px;
+                                "
+                            >
+                                ${number}
+                            </div>
+
+                            <div
+                                style="
+                                    flex: 1;
+                                    color: #27313d;
+                                    font-size: 13px;
+                                    line-height: 1.65;
+                                "
+                            >
+                                ${escapeHTML(item)}
+                            </div>
+
+                        </div>
+
+                    `;
+                }
             );
 
+
+            return html;
         }
 
 
-        return (
-            String(minutes).padStart(2, "0") +
-            ":" +
-            String(secs).padStart(2, "0")
-        );
-    }
+        // ==================================================
+        // EXECUTIVE SUMMARY
+        // ==================================================
+
+        function createExecutiveSummary(
+            ai
+        ) {
+
+            const summary =
+                String(
+                    ai.summary || ""
+                ).trim();
 
 
-    // ==========================================
-    // ESCAPE HTML
-    // ==========================================
+            return `
 
-    function escapeHTML(text) {
+                <section
+                    style="
+                        padding: 22px 22px 24px;
+                        border-bottom: 1px solid #e5e7eb;
+                    "
+                >
 
-        return String(text || "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
-    }
+                    ${sectionTitle(
+                        "01",
+                        "EXECUTIVE SUMMARY",
+                        "Ringkasan analitis dari keseluruhan isi video"
+                    )}
 
 
-    // ==========================================
-    // GET CURRENT LANGUAGE DATA
-    // ==========================================
+                    <div
+                        style="
+                            background: #f8fafc;
+                            border-left: 3px solid #1f2937;
+                            padding: 17px 18px;
+                            border-radius: 0 8px 8px 0;
+                        "
+                    >
 
-    function getLanguageData() {
+                        <div
+                            style="
+                                color: #27313d;
+                                font-size: 14px;
+                                line-height: 1.8;
+                                white-space: pre-wrap;
+                            "
+                        >
+                            ${escapeHTML(
+                                summary ||
+                                "Summary tidak tersedia."
+                            )}
+                        </div>
 
-        if (!currentAIData) {
-            return null;
+                    </div>
+
+                </section>
+
+            `;
         }
 
 
-        return (
-            currentAIData[currentLanguage] ||
-            currentAIData.en ||
-            currentAIData.id ||
-            null
-        );
-    }
+        // ==================================================
+        // KEY POINTS
+        // ==================================================
+
+        function createKeyPoints(
+            ai
+        ) {
+
+            const items =
+                normalizeArray(
+                    ai.key_points
+                );
 
 
-    // ==========================================
-    // CREATE AI SUMMARY HTML
-    // ==========================================
+            return `
 
-    function createAISummaryHTML() {
+                <section
+                    style="
+                        padding: 22px;
+                        border-bottom: 1px solid #e5e7eb;
+                    "
+                >
 
-        const ai =
-            getLanguageData();
+                    ${sectionTitle(
+                        "02",
+                        "KEY POINTS",
+                        "Poin substantif yang paling relevan dari pembahasan"
+                    )}
 
 
-        // ======================================
-        // AI DATA NOT AVAILABLE
-        // ======================================
+                    ${createNumberedList(
+                        items,
+                        "key"
+                    )}
 
-        if (!ai) {
+                </section>
+
+            `;
+        }
+
+
+        // ==================================================
+        // CRITICAL ANALYSIS
+        // ==================================================
+
+        function createCriticalAnalysis(
+            ai
+        ) {
+
+            const items =
+                normalizeArray(
+                    ai.critical_analysis
+                );
+
+
+            return `
+
+                <section
+                    style="
+                        padding: 22px;
+                        border-bottom: 1px solid #e5e7eb;
+                    "
+                >
+
+                    ${sectionTitle(
+                        "03",
+                        "CRITICAL ANALYSIS",
+                        "Evaluasi terhadap klaim, bukti, asumsi, konsistensi dan konteks"
+                    )}
+
+
+                    ${createNumberedList(
+                        items,
+                        "critical"
+                    )}
+
+                </section>
+
+            `;
+        }
+
+
+        // ==================================================
+        // IMPLICATIONS
+        // ==================================================
+
+        function createImplications(
+            ai
+        ) {
+
+            const items =
+                normalizeArray(
+                    ai.implications
+                );
+
+
+            return `
+
+                <section
+                    style="
+                        padding: 22px;
+                        border-bottom: 1px solid #e5e7eb;
+                    "
+                >
+
+                    ${sectionTitle(
+                        "04",
+                        "IMPLICATIONS",
+                        "Implikasi, risiko, peluang atau pertimbangan yang dapat ditarik dari isi video"
+                    )}
+
+
+                    ${createNumberedList(
+                        items,
+                        "implication"
+                    )}
+
+                </section>
+
+            `;
+        }
+
+
+        // ==================================================
+        // TAKEAWAYS
+        // ==================================================
+
+        function createTakeaways(
+            ai
+        ) {
+
+            const items =
+                normalizeArray(
+                    ai.takeaways
+                );
+
+
+            return `
+
+                <section
+                    style="
+                        padding: 22px;
+                    "
+                >
+
+                    ${sectionTitle(
+                        "05",
+                        "KEY TAKEAWAYS",
+                        "Kesimpulan utama yang perlu diperhatikan"
+                    )}
+
+
+                    ${createNumberedList(
+                        items,
+                        "takeaway"
+                    )}
+
+                </section>
+
+            `;
+        }
+
+
+        // ==================================================
+        // CREATE AI SUMMARY
+        // ==================================================
+
+        function createAISummaryHTML() {
+
+            const ai =
+                getLanguageData();
+
+
+            if (
+                !ai
+            ) {
+
+                return `
+
+                    <div
+                        id="aiSummaryContainer"
+                        style="
+                            margin-top: 25px;
+                            background: #ffffff;
+                            border: 1px solid #dfe3e8;
+                            border-radius: 10px;
+                            overflow: hidden;
+                        "
+                    >
+
+                        <div
+                            style="
+                                padding: 20px;
+                                color: #6b7280;
+                            "
+                        >
+                            AI analysis tidak tersedia.
+                        </div>
+
+                    </div>
+
+                `;
+            }
+
 
             return `
 
@@ -133,632 +920,733 @@ document.addEventListener("DOMContentLoaded", () => {
                     id="aiSummaryContainer"
                     style="
                         margin-top: 25px;
-                        padding: 20px;
-                        border-radius: 12px;
-                        background: #ffecec;
-                        border: 1px solid #ffb5b5;
+                        background: #ffffff;
+                        border: 1px solid #dfe3e8;
+                        border-radius: 10px;
+                        overflow: hidden;
+                        box-shadow:
+                            0 2px 8px rgba(
+                                15,
+                                23,
+                                42,
+                                0.04
+                            );
                     "
                 >
 
-                    ❌ AI Summary tidak tersedia.
-
-                </div>
-
-            `;
-        }
-
-
-        const summary =
-            ai.summary || "";
-
-
-        const keyPoints =
-            Array.isArray(ai.key_points)
-                ? ai.key_points
-                : [];
-
-
-        const takeaways =
-            ai.takeaways || "";
-
-
-        // ======================================
-        // LANGUAGE SELECTOR
-        // ======================================
-
-        const languageSelector = `
-
-            <select
-                id="languageSelector"
-                style="
-                    padding: 7px 10px;
-                    border-radius: 8px;
-                    border: 1px solid #bbb;
-                    background: white;
-                    cursor: pointer;
-                    font-size: 14px;
-                "
-            >
-
-                <option
-                    value="en"
-                    ${currentLanguage === "en" ? "selected" : ""}
-                >
-                    🇬🇧 EN
-                </option>
-
-                <option
-                    value="id"
-                    ${currentLanguage === "id" ? "selected" : ""}
-                >
-                    🇮🇩 ID
-                </option>
-
-            </select>
-
-        `;
-
-
-        // ======================================
-        // START HTML
-        // ======================================
-
-        let html = `
-
-            <div
-                id="aiSummaryContainer"
-                style="
-                    margin-top: 25px;
-                    padding: 20px;
-                    border-radius: 12px;
-                    background: #eef6ff;
-                    border: 1px solid #cfe3ff;
-                    position: relative;
-                "
-            >
-
-
-                <!-- LANGUAGE SELECTOR -->
-
-                <div
-                    style="
-                        position: absolute;
-                        top: 15px;
-                        right: 15px;
-                    "
-                >
-
-                    ${languageSelector}
-
-                </div>
-
-
-                <!-- AI SUMMARY -->
-
-                <h2>
-                    🤖 AI Summary
-                </h2>
-
-
-                <!-- SUMMARY -->
-
-                <p
-                    style="
-                        line-height: 1.7;
-                        white-space: pre-wrap;
-                        margin-top: 15px;
-                        padding-right: 100px;
-                    "
-                >
-                    ${escapeHTML(summary)}
-                </p>
-
-
-                <!-- KEY POINTS -->
-
-                <div
-                    style="
-                        margin-top: 25px;
-                        padding-top: 15px;
-                        border-top: 1px solid #d5e5f5;
-                    "
-                >
-
-                    <h3>
-                        📌 Key Points
-                    </h3>
-
-
-                    <ul
-                        style="
-                            line-height: 1.8;
-                            padding-left: 25px;
-                        "
-                    >
-
-        `;
-
-
-        // ======================================
-        // KEY POINTS DATA
-        // ======================================
-
-        if (keyPoints.length > 0) {
-
-            keyPoints.forEach(point => {
-
-                html += `
-
-                    <li>
-                        ${escapeHTML(point)}
-                    </li>
-
-                `;
-            });
-
-        } else {
-
-            html += `
-
-                <li>
-                    Key points tidak tersedia.
-                </li>
-
-            `;
-        }
-
-
-        // ======================================
-        // TAKEAWAYS
-        // ======================================
-
-        html += `
-
-                    </ul>
-
-                </div>
-
-
-                <!-- TAKEAWAYS -->
-
-                <div
-                    style="
-                        margin-top: 25px;
-                        padding-top: 15px;
-                        border-top: 1px solid #d5e5f5;
-                    "
-                >
-
-                    <h3>
-                        💡 Takeaways
-                    </h3>
-
-
-                    <p
-                        style="
-                            line-height: 1.7;
-                            white-space: pre-wrap;
-                        "
-                    >
-                        ${escapeHTML(takeaways)}
-                    </p>
-
-                </div>
-
-
-            </div>
-
-        `;
-
-
-        return html;
-    }
-
-
-    // ==========================================
-    // DISPLAY AI SUMMARY
-    // ==========================================
-
-    function displayAISummary() {
-
-        return createAISummaryHTML();
-
-    }
-
-
-    // ==========================================
-    // UPDATE AI SUMMARY ONLY
-    // ==========================================
-
-    function updateAISummary() {
-
-        if (!currentVideoData) {
-            return;
-        }
-
-
-        const oldContainer =
-            document.getElementById(
-                "aiSummaryContainer"
-            );
-
-
-        if (!oldContainer) {
-
-            console.warn(
-                "aiSummaryContainer tidak ditemukan."
-            );
-
-            return;
-        }
-
-
-        // ======================================
-        // CREATE NEW AI SUMMARY
-        // ======================================
-
-        const newContainer =
-            document.createElement("div");
-
-
-        newContainer.innerHTML =
-            createAISummaryHTML();
-
-
-        const newAIContainer =
-            newContainer.firstElementChild;
-
-
-        if (!newAIContainer) {
-
-            console.warn(
-                "Gagal membuat AI Summary."
-            );
-
-            return;
-        }
-
-
-        // ======================================
-        // REPLACE ONLY AI SUMMARY
-        // ======================================
-
-        oldContainer.replaceWith(
-            newAIContainer
-        );
-
-    }
-
-
-    // ==========================================
-    // DISPLAY TRANSCRIPT
-    // ==========================================
-
-    function displayTranscript(data) {
-
-        const transcriptData =
-            data.transcript;
-
-
-        // ======================================
-        // VALIDATE TRANSCRIPT
-        // ======================================
-
-        if (!transcriptData) {
-
-            statusElement.innerHTML =
-                `
-
-                <div
-                    style="
-                        margin-top: 25px;
-                        padding: 20px;
-                        border-radius: 12px;
-                        background: #ffecec;
-                        border: 1px solid #ffb5b5;
-                    "
-                >
-
-                    ❌ Transcript tidak ditemukan.
-
-                </div>
-
-                `;
-
-            return;
-        }
-
-
-        // ======================================
-        // VIDEO INFORMATION
-        // ======================================
-
-        const title =
-            transcriptData.title ||
-            data.title ||
-            "Untitled Video";
-
-
-        const language =
-            transcriptData.language ||
-            data.language ||
-            "-";
-
-
-        const segments =
-            transcriptData.transcript ||
-            [];
-
-
-        // ======================================
-        // SAVE DATA
-        // ======================================
-
-        currentVideoData =
-            data;
-
-
-        currentAIData =
-            data.summary || null;
-
-
-        // ======================================
-        // START HTML
-        // ======================================
-
-        let html = `
-
-            <div
-                style="
-                    margin-top: 25px;
-                    padding: 20px;
-                    border-radius: 12px;
-                    background: #f5f5f5;
-                "
-            >
-
-
-                <!-- VIDEO TITLE -->
-
-                <h2>
-                    ${escapeHTML(title)}
-                </h2>
-
-
-                <!-- LANGUAGE -->
-
-                <p>
-
-                    <strong>
-                        Transcript Language:
-                    </strong>
-
-                    ${escapeHTML(language)}
-
-                </p>
-
-
-        `;
-
-
-        // ======================================
-        // AI SUMMARY
-        // ======================================
-
-        html +=
-            displayAISummary();
-
-
-        // ======================================
-        // TRANSCRIPT
-        // ======================================
-
-        html += `
-
-                <div
-                    style="
-                        margin-top: 30px;
-                    "
-                >
-
-                    <h2>
-                        📝 Transcript
-                    </h2>
-
-        `;
-
-
-        // ======================================
-        // EMPTY TRANSCRIPT
-        // ======================================
-
-        if (segments.length === 0) {
-
-            html += `
-
-                <p>
-                    Transcript kosong.
-                </p>
-
-            `;
-
-        } else {
-
-
-            // ==================================
-            // TRANSCRIPT SEGMENTS
-            // ==================================
-
-            segments.forEach(segment => {
-
-                const timestamp =
-                    formatTime(
-                        segment.start
-                    );
-
-
-                const text =
-                    segment.text || "";
-
-
-                html += `
+                    <!-- ================================= -->
+                    <!-- HEADER -->
+                    <!-- ================================= -->
 
                     <div
                         style="
                             display: flex;
-                            gap: 15px;
-                            padding: 8px 0;
-                            border-bottom: 1px solid #ddd;
+                            justify-content: space-between;
+                            align-items: center;
+                            padding: 17px 20px;
+                            background: #f8fafc;
+                            border-bottom: 1px solid #e5e7eb;
                         "
                     >
 
-
-                        <!-- TIMESTAMP -->
-
-                        <span
+                        <div
                             style="
-                                min-width: 55px;
-                                font-weight: bold;
-                                color: #555;
+                                display: flex;
+                                align-items: center;
+                                gap: 10px;
                             "
                         >
-                            ${escapeHTML(timestamp)}
-                        </span>
+
+                            <div
+                                style="
+                                    width: 32px;
+                                    height: 32px;
+                                    border-radius: 7px;
+                                    background: #111827;
+                                    color: #ffffff;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    font-size: 15px;
+                                "
+                            >
+                                AI
+                            </div>
+
+                            <div>
+
+                                <div
+                                    style="
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        color: #18212b;
+                                    "
+                                >
+                                    PROFESSIONAL CONTENT ANALYSIS
+                                </div>
+
+                                <div
+                                    style="
+                                        margin-top: 2px;
+                                        font-size: 11px;
+                                        color: #6b7280;
+                                    "
+                                >
+                                    Evidence-based transcript analysis
+                                </div>
+
+                            </div>
+
+                        </div>
 
 
-                        <!-- TEXT -->
-
-                        <span
-                            style="
-                                line-height: 1.6;
-                            "
-                        >
-                            ${escapeHTML(text)}
-                        </span>
-
+                        ${createLanguageSelector()}
 
                     </div>
 
-                `;
 
-            });
+                    <!-- ================================= -->
+                    <!-- SECTIONS -->
+                    <!-- ================================= -->
 
-        }
+                    ${createExecutiveSummary(ai)}
 
+                    ${createKeyPoints(ai)}
 
-        // ======================================
-        // CLOSE HTML
-        // ======================================
+                    ${createCriticalAnalysis(ai)}
 
-        html += `
+                    ${createImplications(ai)}
+
+                    ${createTakeaways(ai)}
 
                 </div>
 
-            </div>
-
-        `;
-
-
-        // ======================================
-        // DISPLAY
-        // ======================================
-
-        statusElement.innerHTML =
-            html;
-
-    }
+            `;
+        }
 
 
-    // ==========================================
-    // LANGUAGE SELECTOR
-    // ==========================================
-    //
-    // EVENT DELEGATION
-    //
-    // Event listener dipasang SATU KALI.
-    // Jadi walaupun AI Summary diganti,
-    // dropdown tetap bekerja.
-    // ==========================================
+        // ==================================================
+        // UPDATE AI SUMMARY
+        // ==================================================
 
-    statusElement.addEventListener(
-        "change",
-        (event) => {
+        function updateAISummary() {
 
             if (
-                event.target &&
-                event.target.id ===
-                    "languageSelector"
+                !currentVideoData
             ) {
 
-                currentLanguage =
-                    event.target.value;
-
-
-                console.log(
-                    "Language changed to:",
-                    currentLanguage
-                );
-
-
-                updateAISummary();
+                return;
 
             }
 
+
+            const oldContainer =
+                document.getElementById(
+                    "aiSummaryContainer"
+                );
+
+
+            if (
+                !oldContainer
+            ) {
+
+                return;
+
+            }
+
+
+            const wrapper =
+                document.createElement(
+                    "div"
+                );
+
+
+            wrapper.innerHTML =
+                createAISummaryHTML();
+
+
+            const newContainer =
+                wrapper.firstElementChild;
+
+
+            if (
+                !newContainer
+            ) {
+
+                return;
+
+            }
+
+
+            oldContainer.replaceWith(
+                newContainer
+            );
         }
-    );
 
 
-    // ==========================================
-    // ANALYZE BUTTON
-    // ==========================================
+        // ==================================================
+        // VIDEO INFORMATION
+        // ==================================================
 
-    analyzeButton.addEventListener(
-        "click",
-        async () => {
+        function createVideoInformation(
+            data,
+            transcriptData
+        ) {
 
-            const url =
-                videoUrlInput.value.trim();
+            const title =
+                transcriptData.title
+                ||
+                data.title
+                ||
+                "Untitled Video";
 
 
-            // ==================================
-            // VALIDATION
-            // ==================================
+            const language =
+                transcriptData.language
+                ||
+                data.language
+                ||
+                "-";
 
-            if (!url) {
 
-                statusElement.innerHTML = `
+            const channel =
+                data.metadata
+                &&
+                data.metadata.channel
+                    ? data.metadata.channel
+                    : "";
+
+
+            const videoId =
+                data.video_id
+                ||
+                "";
+
+
+            return `
+
+                <div
+                    style="
+                        background: #ffffff;
+                        border: 1px solid #dfe3e8;
+                        border-radius: 10px;
+                        padding: 20px;
+                        margin-top: 25px;
+                    "
+                >
 
                     <div
                         style="
-                            margin-top: 25px;
-                            padding: 20px;
-                            border-radius: 12px;
-                            background: #ffecec;
-                            border: 1px solid #ffb5b5;
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            gap: 15px;
+                            margin-bottom: 17px;
                         "
                     >
 
-                        ❌ Masukkan URL YouTube
-                        terlebih dahulu.
+                        <div
+                            style="
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: #6b7280;
+                                letter-spacing: 0.6px;
+                            "
+                        >
+                            VIDEO INFORMATION
+                        </div>
 
+                        <div
+                            style="
+                                font-size: 11px;
+                                color: #9ca3af;
+                                font-family: monospace;
+                            "
+                        >
+                            ${escapeHTML(videoId)}
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        style="
+                            font-size: 20px;
+                            line-height: 1.4;
+                            font-weight: 700;
+                            color: #17202a;
+                            margin-bottom: 16px;
+                        "
+                    >
+                        ${escapeHTML(title)}
+                    </div>
+
+
+                    <div
+                        style="
+                            display: grid;
+                            grid-template-columns:
+                                repeat(
+                                    auto-fit,
+                                    minmax(
+                                        160px,
+                                        1fr
+                                    )
+                                );
+                            gap: 10px;
+                        "
+                    >
+
+                        <div
+                            style="
+                                padding: 11px 13px;
+                                background: #f8fafc;
+                                border: 1px solid #e5e7eb;
+                                border-radius: 7px;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    font-size: 10px;
+                                    text-transform: uppercase;
+                                    color: #8a94a3;
+                                    margin-bottom: 4px;
+                                "
+                            >
+                                Transcript Language
+                            </div>
+
+                            <div
+                                style="
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #26313d;
+                                "
+                            >
+                                ${escapeHTML(language)}
+                            </div>
+
+                        </div>
+
+
+                        <div
+                            style="
+                                padding: 11px 13px;
+                                background: #f8fafc;
+                                border: 1px solid #e5e7eb;
+                                border-radius: 7px;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    font-size: 10px;
+                                    text-transform: uppercase;
+                                    color: #8a94a3;
+                                    margin-bottom: 4px;
+                                "
+                            >
+                                Channel
+                            </div>
+
+                            <div
+                                style="
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #26313d;
+                                "
+                            >
+                                ${
+                                    escapeHTML(
+                                        channel ||
+                                        "-"
+                                    )
+                                }
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            `;
+        }
+
+
+        // ==================================================
+        // TRANSCRIPT
+        // ==================================================
+
+        function createTranscriptHTML(
+            segments
+        ) {
+
+            let html = `
+
+                <div
+                    style="
+                        margin-top: 18px;
+                        background: #ffffff;
+                        border: 1px solid #dfe3e8;
+                        border-radius: 10px;
+                        overflow: hidden;
+                    "
+                >
+
+                    <div
+                        style="
+                            padding: 17px 20px;
+                            background: #f8fafc;
+                            border-bottom: 1px solid #e5e7eb;
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: #18212b;
+                            "
+                        >
+                            📝 TRANSCRIPT
+                        </div>
+
+                        <div
+                            style="
+                                margin-top: 3px;
+                                font-size: 11px;
+                                color: #6b7280;
+                            "
+                        >
+                            Timestamped transcript from the source video
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        style="
+                            max-height: 600px;
+                            overflow-y: auto;
+                            padding: 5px 20px 10px;
+                        "
+                    >
+
+            `;
+
+
+            if (
+                !segments
+                ||
+                segments.length === 0
+            ) {
+
+                html += `
+
+                    <div
+                        style="
+                            padding: 25px 5px;
+                            color: #6b7280;
+                            font-size: 13px;
+                        "
+                    >
+                        Transcript kosong.
                     </div>
 
                 `;
 
-                return;
+            } else {
+
+                segments.forEach(
+                    (
+                        segment
+                    ) => {
+
+                        const timestamp =
+                            formatTime(
+                                segment.start
+                            );
+
+
+                        const text =
+                            segment.text
+                            ||
+                            "";
+
+
+                        html += `
+
+                            <div
+                                style="
+                                    display: grid;
+                                    grid-template-columns:
+                                        65px 1fr;
+                                    gap: 15px;
+                                    padding: 11px 0;
+                                    border-bottom:
+                                        1px solid #eef0f2;
+                                "
+                            >
+
+                                <div
+                                    style="
+                                        font-family:
+                                            ui-monospace,
+                                            SFMono-Regular,
+                                            Menlo,
+                                            Monaco,
+                                            Consolas,
+                                            monospace;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        color: #667085;
+                                        padding-top: 2px;
+                                    "
+                                >
+                                    ${escapeHTML(
+                                        timestamp
+                                    )}
+                                </div>
+
+
+                                <div
+                                    style="
+                                        font-size: 13px;
+                                        line-height: 1.7;
+                                        color: #303945;
+                                    "
+                                >
+                                    ${escapeHTML(
+                                        text
+                                    )}
+                                </div>
+
+                            </div>
+
+                        `;
+                    }
+                );
+
             }
 
 
-            // ==================================
-            // LOADING
-            // ==================================
+            html += `
 
-            analyzeButton.disabled =
-                true;
+                    </div>
+
+                </div>
+
+            `;
 
 
-            analyzeButton.innerText =
-                "Analyzing...";
+            return html;
+        }
+
+
+        // ==================================================
+        // DISPLAY COMPLETE REPORT
+        // ==================================================
+
+        function displayTranscript(
+            data
+        ) {
+
+            // ----------------------------------------------
+            // SAVE DATA
+            // ----------------------------------------------
+
+            currentVideoData =
+                data;
+
+
+            currentAIData =
+                data.summary
+                ||
+                null;
+
+
+            // ----------------------------------------------
+            // TRANSCRIPT
+            // ----------------------------------------------
+
+            const transcriptData =
+                getTranscriptData(
+                    data
+                );
+
+
+            const segments =
+                transcriptData.segments;
+
+
+            // ----------------------------------------------
+            // START REPORT
+            // ----------------------------------------------
+
+            let html = `
+
+                <div
+                    style="
+                        margin-top: 10px;
+                    "
+                >
+
+                    ${createVideoInformation(
+                        data,
+                        transcriptData
+                    )}
+
+                    ${createAISummaryHTML()}
+
+                    <div
+                        style="
+                            margin-top: 30px;
+                        "
+                    >
+
+                        <div
+                            style="
+                                margin-bottom: 12px;
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: #6b7280;
+                                letter-spacing: 0.5px;
+                            "
+                        >
+                            SOURCE MATERIAL
+                        </div>
+
+                        ${createTranscriptHTML(
+                            segments
+                        )}
+
+                    </div>
+
+                </div>
+
+            `;
+
+
+            statusElement.innerHTML =
+                html;
+        }
+
+
+        // ==================================================
+        // LOADING DISPLAY
+        // ==================================================
+
+        function showLoading() {
+
+            statusElement.innerHTML = `
+
+                <div
+                    style="
+                        margin-top: 25px;
+                        background: #ffffff;
+                        border: 1px solid #dfe3e8;
+                        border-radius: 10px;
+                        padding: 25px;
+                    "
+                >
+
+                    <div
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 12px;
+                        "
+                    >
+
+                        <div
+                            style="
+                                width: 26px;
+                                height: 26px;
+                                border: 3px solid #e5e7eb;
+                                border-top-color: #111827;
+                                border-radius: 50%;
+                                animation:
+                                    spin 0.8s linear infinite;
+                            "
+                        ></div>
+
+                        <div>
+
+                            <div
+                                style="
+                                    font-size: 14px;
+                                    font-weight: 700;
+                                    color: #1f2937;
+                                "
+                            >
+                                Analyzing video...
+                            </div>
+
+                            <div
+                                style="
+                                    margin-top: 3px;
+                                    font-size: 12px;
+                                    color: #6b7280;
+                                "
+                            >
+                                Mengambil transcript dan melakukan
+                                professional content analysis.
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <style>
+                    @keyframes spin {
+                        from {
+                            transform: rotate(0deg);
+                        }
+
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
+            `;
+        }
+
+
+        // ==================================================
+        // ERROR DISPLAY
+        // ==================================================
+
+        function showAPIError(
+            data
+        ) {
+
+            const message =
+                data.message
+                ||
+                "Unknown error";
+
+
+            const errorType =
+                data.error_type
+                ||
+                "";
+
+
+            const detail =
+                data.error
+                ||
+                "";
+
+
+            const httpStatus =
+                data.http_status
+                ||
+                "";
 
 
             statusElement.innerHTML = `
@@ -766,179 +1654,213 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div
                     style="
                         margin-top: 25px;
-                        padding: 20px;
-                        border-radius: 12px;
-                        background: #f5f5f5;
+                        background: #ffffff;
+                        border: 1px solid #e5b8b8;
+                        border-radius: 10px;
+                        overflow: hidden;
                     "
                 >
 
-                    ⏳ Mengambil transcript
-                    dan membuat AI summary...
+                    <div
+                        style="
+                            padding: 16px 20px;
+                            background: #fff5f5;
+                            border-bottom: 1px solid #f0d4d4;
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: #b42318;
+                            "
+                        >
+                            ANALYSIS FAILED
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        style="
+                            padding: 20px;
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size: 13px;
+                                line-height: 1.6;
+                                color: #344054;
+                            "
+                        >
+
+                            <strong>
+                                Message:
+                            </strong>
+
+                            ${escapeHTML(
+                                message
+                            )}
+
+                        </div>
+
+
+                        ${
+                            errorType
+                                ? `
+                                    <div
+                                        style="
+                                            margin-top: 10px;
+                                            font-size: 12px;
+                                            color: #667085;
+                                        "
+                                    >
+                                        Error Type:
+                                        <strong>
+                                            ${escapeHTML(
+                                                errorType
+                                            )}
+                                        </strong>
+                                    </div>
+                                `
+                                : ""
+                        }
+
+
+                        ${
+                            httpStatus
+                                ? `
+                                    <div
+                                        style="
+                                            margin-top: 5px;
+                                            font-size: 12px;
+                                            color: #667085;
+                                        "
+                                    >
+                                        HTTP Status:
+                                        <strong>
+                                            ${escapeHTML(
+                                                httpStatus
+                                            )}
+                                        </strong>
+                                    </div>
+                                `
+                                : ""
+                        }
+
+
+                        ${
+                            detail
+                                ? `
+                                    <details
+                                        style="
+                                            margin-top: 15px;
+                                        "
+                                    >
+
+                                        <summary
+                                            style="
+                                                cursor: pointer;
+                                                font-size: 12px;
+                                                color: #667085;
+                                            "
+                                        >
+                                            Technical details
+                                        </summary>
+
+                                        <pre
+                                            style="
+                                                margin-top: 10px;
+                                                padding: 12px;
+                                                background: #f8fafc;
+                                                border: 1px solid #e5e7eb;
+                                                border-radius: 7px;
+                                                white-space: pre-wrap;
+                                                word-break: break-word;
+                                                font-size: 11px;
+                                            "
+                                        >${escapeHTML(
+                                            detail
+                                        )}</pre>
+
+                                    </details>
+                                `
+                                : ""
+                        }
+
+                    </div>
 
                 </div>
 
             `;
+        }
 
 
-            try {
+        // ==================================================
+        // LANGUAGE CHANGE
+        // ==================================================
 
-                // ==============================
-                // CALL BACKEND
-                // ==============================
-
-                const response =
-                    await fetch(
-                        API_URL,
-                        {
-
-                            method: "POST",
-
-                            headers: {
-
-                                "Content-Type":
-                                    "application/json"
-
-                            },
-
-                            body: JSON.stringify({
-
-                                url: url
-
-                            })
-
-                        }
-                    );
-
-
-                // ==============================
-                // READ RESPONSE
-                // ==============================
-
-                const data =
-                    await response.json();
-
-
-                // ==============================
-                // ERROR CHECK
-                // ==============================
+        statusElement.addEventListener(
+            "change",
+            (
+                event
+            ) => {
 
                 if (
-                    !response.ok ||
-                    data.status !== "success"
+                    event.target
+                    &&
+                    event.target.id ===
+                        "languageSelector"
                 ) {
 
-                    console.error(
-                        "API Error:",
-                        data
-                    );
+                    currentLanguage =
+                        event.target.value;
 
+
+                    updateAISummary();
+
+                }
+
+            }
+        );
+
+
+        // ==================================================
+        // ANALYZE BUTTON
+        // ==================================================
+
+        analyzeButton.addEventListener(
+            "click",
+            async () => {
+
+                const url =
+                    videoUrlInput.value.trim();
+
+
+                // ------------------------------------------
+                // VALIDATION
+                // ------------------------------------------
+
+                if (
+                    !url
+                ) {
 
                     statusElement.innerHTML = `
 
                         <div
                             style="
                                 margin-top: 25px;
-                                padding: 20px;
-                                border-radius: 12px;
-                                background: #ffecec;
-                                border: 1px solid #ffb5b5;
+                                background: #fff8f0;
+                                border: 1px solid #f1d6b5;
+                                border-radius: 10px;
+                                padding: 18px 20px;
+                                color: #8a4b08;
+                                font-size: 13px;
                             "
                         >
-
-                            <h3 style="
-                                margin-top: 0;
-                                color: #d32f2f;
-                            ">
-                                ❌ Gagal menganalisis video
-                            </h3>
-
-
-                            <p>
-                                <strong>Message:</strong>
-                                ${escapeHTML(
-                                    data.message ||
-                                    "Unknown error"
-                                )}
-                            </p>
-
-
-                            ${
-                                data.error_type
-                                    ? `
-                                        <p>
-                                            <strong>Error Type:</strong>
-                                            ${escapeHTML(
-                                                data.error_type
-                                            )}
-                                        </p>
-                                    `
-                                    : ""
-                            }
-
-
-                            ${
-                                data.error
-                                    ? `
-                                        <p>
-                                            <strong>Detail Error:</strong>
-                                        </p>
-
-                                        <pre
-                                            style="
-                                                white-space: pre-wrap;
-                                                word-break: break-word;
-                                                background: #fff;
-                                                padding: 12px;
-                                                border-radius: 8px;
-                                                border: 1px solid #ddd;
-                                                font-size: 13px;
-                                            "
-                                        >
-${escapeHTML(data.error)}
-                                        </pre>
-                                    `
-                                    : ""
-                            }
-
-
-                            ${
-                                data.http_status
-                                    ? `
-                                        <p>
-                                            <strong>HTTP Status:</strong>
-                                            ${escapeHTML(
-                                                data.http_status
-                                            )}
-                                        </p>
-                                    `
-                                    : ""
-                            }
-
-
-                            ${
-                                data.details
-                                    ? `
-                                        <p>
-                                            <strong>API Details:</strong>
-                                        </p>
-
-                                        <pre
-                                            style="
-                                                white-space: pre-wrap;
-                                                word-break: break-word;
-                                                background: #fff;
-                                                padding: 12px;
-                                                border-radius: 8px;
-                                                border: 1px solid #ddd;
-                                                font-size: 13px;
-                                            "
-                                        >
-${escapeHTML(data.details)}
-                                        </pre>
-                                    `
-                                    : ""
-                            }
-
+                            Masukkan URL YouTube terlebih dahulu.
                         </div>
 
                     `;
@@ -947,68 +1869,190 @@ ${escapeHTML(data.details)}
                 }
 
 
-                // ==============================
-                // SUCCESS
-                // ==============================
-
-                currentLanguage =
-                    "en";
-
-
-                displayTranscript(
-                    data
-                );
-
-
-            } catch (error) {
-
-                console.error(
-                    "Frontend Error:",
-                    error
-                );
-
-
-                statusElement.innerHTML = `
-
-                    <div
-                        style="
-                            margin-top: 25px;
-                            padding: 20px;
-                            border-radius: 12px;
-                            background: #ffecec;
-                            border: 1px solid #ffb5b5;
-                        "
-                    >
-
-                        ❌ Tidak dapat terhubung
-                        ke backend.
-
-                        <br><br>
-
-                        ${escapeHTML(
-                            error.message
-                        )}
-
-                    </div>
-
-                `;
-
-            } finally {
-
-                // ==============================
-                // RESET BUTTON
-                // ==============================
+                // ------------------------------------------
+                // BUTTON STATE
+                // ------------------------------------------
 
                 analyzeButton.disabled =
-                    false;
+                    true;
 
 
                 analyzeButton.innerText =
-                    "Analyze";
+                    "Analyzing...";
+
+
+                // ------------------------------------------
+                // LOADING
+                // ------------------------------------------
+
+                showLoading();
+
+
+                try {
+
+                    // ======================================
+                    // API REQUEST
+                    // ======================================
+
+                    const response =
+                        await fetch(
+                            API_URL,
+                            {
+
+                                method:
+                                    "POST",
+
+                                headers: {
+
+                                    "Content-Type":
+                                        "application/json"
+
+                                },
+
+                                body:
+                                    JSON.stringify(
+                                        {
+                                            url:
+                                                url
+                                        }
+                                    )
+
+                            }
+                        );
+
+
+                    // ======================================
+                    // READ RESPONSE
+                    // ======================================
+
+                    let data;
+
+
+                    try {
+
+                        data =
+                            await response.json();
+
+                    } catch (
+                        jsonError
+                    ) {
+
+                        throw new Error(
+                            "Backend returned invalid JSON."
+                        );
+
+                    }
+
+
+                    // ======================================
+                    // ERROR CHECK
+                    // ======================================
+
+                    if (
+                        !response.ok
+                        ||
+                        data.status !==
+                            "success"
+                    ) {
+
+                        console.error(
+                            "API Error:",
+                            data
+                        );
+
+
+                        showAPIError(
+                            data
+                        );
+
+
+                        return;
+                    }
+
+
+                    // ======================================
+                    // RESET LANGUAGE
+                    // ======================================
+
+                    currentLanguage =
+                        "en";
+
+
+                    // ======================================
+                    // DISPLAY REPORT
+                    // ======================================
+
+                    displayTranscript(
+                        data
+                    );
+
+
+                } catch (
+                    error
+                ) {
+
+                    console.error(
+                        "Frontend Error:",
+                        error
+                    );
+
+
+                    statusElement.innerHTML = `
+
+                        <div
+                            style="
+                                margin-top: 25px;
+                                background: #ffffff;
+                                border: 1px solid #e5b8b8;
+                                border-radius: 10px;
+                                padding: 20px;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    color: #b42318;
+                                    font-size: 14px;
+                                    font-weight: 700;
+                                    margin-bottom: 8px;
+                                "
+                            >
+                                BACKEND CONNECTION ERROR
+                            </div>
+
+                            <div
+                                style="
+                                    color: #475467;
+                                    font-size: 13px;
+                                    line-height: 1.6;
+                                "
+                            >
+                                ${escapeHTML(
+                                    error.message
+                                )}
+                            </div>
+
+                        </div>
+
+                    `;
+
+                } finally {
+
+                    // --------------------------------------
+                    // RESET BUTTON
+                    // --------------------------------------
+
+                    analyzeButton.disabled =
+                        false;
+
+
+                    analyzeButton.innerText =
+                        "Analyze";
+
+                }
 
             }
+        );
 
-        }
-    );
-
-});
+    }
+);
