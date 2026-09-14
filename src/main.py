@@ -29,7 +29,7 @@ import ast
 app = FastAPI(
     title="AI Video Summarizer API",
     description="Professional AI Video Analysis API",
-    version="5.0.0"
+    version="6.0.0"
 )
 
 
@@ -78,9 +78,9 @@ async def root():
         "status": "ok",
         "message": (
             "AI Video Summarizer API "
-            "V5 is running on Cloudflare"
+            "V6 is running on Cloudflare"
         ),
-        "version": "5.0.0"
+        "version": "6.0.0"
     }
 
 
@@ -93,13 +93,13 @@ async def health():
 
     return {
         "status": "healthy",
-        "version": "5.0.0",
+        "version": "6.0.0",
         "model": AI_MODEL
     }
 
 
 # ============================================================
-# ERROR HANDLER
+# HTTP ERROR HANDLER
 # ============================================================
 
 @app.exception_handler(HTTPException)
@@ -263,7 +263,7 @@ def parse_ai_json(text):
         )
 
     # --------------------------------------------------------
-    # Remove markdown fence
+    # Remove markdown code fence
     # --------------------------------------------------------
 
     text = re.sub(
@@ -309,7 +309,7 @@ def parse_ai_json(text):
         pass
 
     # --------------------------------------------------------
-    # JSON inside other text
+    # JSON embedded inside text
     # --------------------------------------------------------
 
     start = text.find(
@@ -331,6 +331,10 @@ def parse_ai_json(text):
                 end + 1
             ]
         )
+
+        # ----------------------------------------------------
+        # Standard JSON
+        # ----------------------------------------------------
 
         try:
 
@@ -397,12 +401,198 @@ def parse_ai_json(text):
 
 
 # ============================================================
+# CONVERT ANALYSIS OBJECT TO PROFESSIONAL TEXT
+# ============================================================
+
+def convert_analysis_object(
+    item
+):
+
+    if not isinstance(
+        item,
+        dict
+    ):
+
+        return clean_text(
+            item
+        )
+
+    # ========================================================
+    # POSSIBLE AI FIELD NAMES
+    # ========================================================
+
+    issue = clean_text(
+        item.get(
+            "issue",
+            ""
+        )
+    )
+
+    reason = clean_text(
+        item.get(
+            "reason",
+            ""
+        )
+    )
+
+    analysis = clean_text(
+        item.get(
+            "analysis",
+            ""
+        )
+    )
+
+    observation = clean_text(
+        item.get(
+            "observation",
+            ""
+        )
+    )
+
+    significance = clean_text(
+        item.get(
+            "significance",
+            ""
+        )
+    )
+
+    implication = clean_text(
+        item.get(
+            "implication",
+            ""
+        )
+    )
+
+    evidence = clean_text(
+        item.get(
+            "evidence",
+            ""
+        )
+    )
+
+    # ========================================================
+    # BEST CASE:
+    # ANALYSIS ALREADY PROVIDED
+    # ========================================================
+
+    if analysis:
+
+        return analysis
+
+
+    # ========================================================
+    # OBSERVATION + SIGNIFICANCE
+    # ========================================================
+
+    if observation:
+
+        if significance:
+
+            return (
+                observation
+                + " "
+                + significance
+            )
+
+        if reason:
+
+            return (
+                observation
+                + " "
+                + reason
+            )
+
+        if implication:
+
+            return (
+                observation
+                + " "
+                + implication
+            )
+
+        return observation
+
+
+    # ========================================================
+    # ISSUE + REASON
+    #
+    # Convert raw AI structure into professional prose.
+    # ========================================================
+
+    if issue:
+
+        sentence = issue
+
+        if reason:
+
+            sentence = (
+                sentence
+                + " "
+                + reason
+            )
+
+        elif significance:
+
+            sentence = (
+                sentence
+                + " "
+                + significance
+            )
+
+        elif implication:
+
+            sentence = (
+                sentence
+                + " "
+                + implication
+            )
+
+        elif evidence:
+
+            sentence = (
+                sentence
+                + " "
+                + evidence
+            )
+
+        return sentence
+
+
+    # ========================================================
+    # GENERIC DICTIONARY FALLBACK
+    # ========================================================
+
+    values = []
+
+    for value in item.values():
+
+        text = clean_text(
+            value
+        )
+
+        if text:
+
+            values.append(
+                text
+            )
+
+    if values:
+
+        return " ".join(
+            values
+        )
+
+    return ""
+
+
+# ============================================================
 # NORMALIZE LIST
 # ============================================================
 
 def normalize_list(
     value,
-    maximum
+    maximum,
+    convert_objects=True
 ):
 
     if not isinstance(
@@ -416,17 +606,115 @@ def normalize_list(
 
     for item in value:
 
-        text = clean_text(
-            item
-        )
+        # ----------------------------------------------------
+        # STRING
+        # ----------------------------------------------------
 
-        if text:
+        if isinstance(
+            item,
+            str
+        ):
 
-            result.append(
-                text
+            text = clean_text(
+                item
             )
 
+            if text:
+
+                result.append(
+                    text
+                )
+
+            continue
+
+        # ----------------------------------------------------
+        # DICTIONARY
+        # ----------------------------------------------------
+
+        if (
+            isinstance(
+                item,
+                dict
+            )
+            and
+            convert_objects
+        ):
+
+            text = convert_analysis_object(
+                item
+            )
+
+            if text:
+
+                result.append(
+                    text
+                )
+
+            continue
+
     return result[:maximum]
+
+
+# ============================================================
+# NORMALIZE CRITICAL ANALYSIS
+# ============================================================
+
+def normalize_critical_analysis(
+    value
+):
+
+    if not isinstance(
+        value,
+        list
+    ):
+
+        return []
+
+    result = []
+
+    for item in value:
+
+        # ----------------------------------------------------
+        # STRING
+        # ----------------------------------------------------
+
+        if isinstance(
+            item,
+            str
+        ):
+
+            text = clean_text(
+                item
+            )
+
+            if text:
+
+                result.append(
+                    text
+                )
+
+            continue
+
+        # ----------------------------------------------------
+        # OBJECT
+        # ----------------------------------------------------
+
+        if isinstance(
+            item,
+            dict
+        ):
+
+            text = convert_analysis_object(
+                item
+            )
+
+            if text:
+
+                result.append(
+                    text
+                )
+
+    return result[:5]
 
 
 # ============================================================
@@ -444,12 +732,20 @@ def normalize_analysis(
 
         data = {}
 
+    # ========================================================
+    # SUMMARY
+    # ========================================================
+
     summary = clean_text(
         data.get(
             "summary",
             ""
         )
     )
+
+    # ========================================================
+    # KEY POINTS
+    # ========================================================
 
     key_points = normalize_list(
         data.get(
@@ -459,13 +755,22 @@ def normalize_analysis(
         5
     )
 
-    critical_analysis = normalize_list(
-        data.get(
-            "critical_analysis",
-            []
-        ),
-        5
+    # ========================================================
+    # CRITICAL ANALYSIS
+    # ========================================================
+
+    critical_analysis = (
+        normalize_critical_analysis(
+            data.get(
+                "critical_analysis",
+                []
+            )
+        )
     )
+
+    # ========================================================
+    # IMPLICATIONS
+    # ========================================================
 
     implications = normalize_list(
         data.get(
@@ -475,6 +780,10 @@ def normalize_analysis(
         4
     )
 
+    # ========================================================
+    # TAKEAWAYS
+    # ========================================================
+
     takeaways = normalize_list(
         data.get(
             "takeaways",
@@ -482,6 +791,10 @@ def normalize_analysis(
         ),
         3
     )
+
+    # ========================================================
+    # RETURN
+    # ========================================================
 
     return {
 
@@ -631,7 +944,7 @@ def transcript_to_text(
 
 
 # ============================================================
-# BUILD CHUNKS
+# BUILD TRANSCRIPT CHUNKS
 # ============================================================
 
 def build_chunks(
@@ -724,6 +1037,7 @@ async def get_youtube_metadata(
     )
 
     params = {
+
         "url":
             normalized_url,
 
@@ -864,6 +1178,13 @@ async def get_transcript(
                 None
         }
 
+    # IMPORTANT:
+    # FreeTranscriptAPI uses GET.
+    #
+    # Query:
+    # ?video_url=<youtube-url>
+    # ========================================================
+
     params = {
 
         "video_url":
@@ -904,6 +1225,10 @@ async def get_transcript(
                 None
         }
 
+    # ========================================================
+    # PARSE RESPONSE
+    # ========================================================
+
     try:
 
         data = response.json()
@@ -911,6 +1236,10 @@ async def get_transcript(
     except Exception:
 
         data = {}
+
+    # ========================================================
+    # API ERROR
+    # ========================================================
 
     if response.status_code >= 400:
 
@@ -931,6 +1260,10 @@ async def get_transcript(
             "data":
                 data
         }
+
+    # ========================================================
+    # NORMALIZE TRANSCRIPT
+    # ========================================================
 
     transcript = normalize_transcript(
         data
@@ -983,27 +1316,27 @@ async def get_transcript(
 # ============================================================
 
 AI_SYSTEM_PROMPT = """
-You are a professional media and content analyst.
+You are a senior professional content analyst.
 
-Your task is to analyze a YouTube transcript for a
-professional office-quality report.
+Your output will be used in a professional office environment,
+including management review, media monitoring, research,
+briefing, reporting and decision support.
 
-The analysis must be substantially more rigorous than
-a casual summary.
+Analyze the provided YouTube transcript rigorously.
 
 ============================================================
-SOURCE DISCIPLINE
+1. SOURCE DISCIPLINE
 ============================================================
 
-Use ONLY the transcript provided.
+Use ONLY the provided transcript.
 
 Do NOT use outside knowledge.
 
-Do NOT search the internet.
+Do NOT search for additional information.
 
 Do NOT invent facts.
 
-Do NOT assume facts that are not explicitly supported.
+Do NOT assume facts that are not supported.
 
 Do NOT identify speakers.
 
@@ -1011,190 +1344,256 @@ Do NOT guess speaker identities.
 
 Do NOT attribute statements to specific people.
 
-Do NOT create quotations that do not exist.
+Do NOT create quotations.
 
-Do NOT add information merely because it is common knowledge.
-
-============================================================
-ANALYTICAL APPROACH
-============================================================
-
-First determine:
-
-1. What is the central subject?
-2. What are the major arguments or themes?
-3. What claims are actually made?
-4. What evidence or examples are provided?
-5. Which statements are factual?
-6. Which statements are opinions?
-7. Which statements are assumptions?
-8. Which conclusions are interpretations?
-9. What important context is missing?
-10. Are there contradictions or logical gaps?
-
-The analysis must prioritize substance over surface-level
-description.
-
-Do NOT simply repeat the transcript.
+Do NOT add information that is not contained
+or reasonably supported by the transcript.
 
 ============================================================
-CRITICAL ANALYSIS
+2. ANALYTICAL OBJECTIVE
 ============================================================
 
-Critical analysis must be evidence-based.
+The purpose is NOT merely to summarize.
 
-Look for:
+The purpose is to produce a professional assessment
+of the substantive content.
 
-- unsupported claims
-- weak evidence
-- logical gaps
-- contradictions
-- overgeneralization
-- exaggeration
-- causal claims without sufficient evidence
-- selective presentation
+Determine:
+
+- the central subject
+- the main message
+- major themes
+- important claims
+- supporting evidence
+- factual statements
+- opinions
+- assumptions
+- interpretations
+- conclusions
+- limitations
+- inconsistencies
 - missing context
-- assumptions presented as facts
-- conclusions that are stronger than the evidence
-- ambiguity
-- internal inconsistency
+- potential implications
 
-However:
-
-Do NOT manufacture criticism.
-
-If the transcript does not support a criticism,
-do not create one.
-
-If an argument is reasonable and well supported,
-say so.
-
-The objective is professional analysis,
-not negativity.
+Prioritize substance over surface-level description.
 
 ============================================================
-PROFESSIONAL STANDARD
+3. EXECUTIVE SUMMARY
 ============================================================
 
-Write as if the output will be read by:
+Write an executive-level summary.
 
-- management
-- analysts
-- researchers
-- consultants
-- corporate staff
+The summary should answer:
 
-Use precise and neutral language.
+- What is the content fundamentally about?
+- What is the central message?
+- What are the most important themes?
+- What conclusions are reasonably supported?
+
+Do NOT simply list topics.
+
+Do NOT begin with phrases such as:
+
+"The transcript discusses..."
+
+"The video talks about..."
+
+"The speaker explains..."
+
+Instead, directly describe the substantive content.
+
+The summary should be approximately
+120 to 150 words.
+
+============================================================
+4. KEY POINTS
+============================================================
+
+Provide exactly 5 key points.
+
+Each point must represent an important substantive
+element of the content.
 
 Avoid:
 
-- sensational language
+- trivial details
+- repeated information
+- generic observations
+- statements that merely repeat the summary
+
+Each point should be concise but informative.
+
+============================================================
+5. CRITICAL ANALYSIS
+============================================================
+
+Critical analysis is the most important analytical section.
+
+Evaluate the quality and strength of the content.
+
+Consider:
+
+- evidence quality
+- unsupported claims
+- logical gaps
+- assumptions
+- contradictions
+- overgeneralization
+- causal claims
+- missing context
+- selective framing
+- ambiguity
+- conclusions stronger than available evidence
+- consistency between claims and supporting information
+
+IMPORTANT:
+
+Do NOT criticize simply because information is missing.
+
+Do NOT manufacture weaknesses.
+
+If the content is reasonably supported,
+acknowledge that.
+
+If a limitation exists, explain its significance.
+
+Critical analysis should naturally contain:
+
+1. analytical observation
+2. why the observation matters
+
+But DO NOT label them.
+
+============================================================
+6. CRITICAL ANALYSIS WRITING STYLE
+============================================================
+
+CRITICAL_ANALYSIS MUST BE STRINGS ONLY.
+
+NEVER return objects.
+
+BAD:
+
+{
+  "issue": "The criteria are unclear.",
+  "reason": "The discussion does not explain them."
+}
+
+BAD:
+
+"Issue: unclear criteria."
+
+BAD:
+
+"Reason: insufficient information."
+
+BAD:
+
+"The transcript does not provide information about..."
+
+GOOD:
+
+"The criteria used to select participants and judges are not
+explained in sufficient detail, limiting the ability to assess
+whether the stated professional qualifications were applied
+consistently."
+
+GOOD:
+
+"Information regarding the winners' rewards is not sufficiently
+detailed, limiting assessment of the competitive incentives
+associated with the event."
+
+GOOD:
+
+"The event is presented as having institutional significance,
+but the discussion provides limited concrete evidence regarding
+its broader impact on the community."
+
+Do NOT repeatedly use the phrase:
+
+"The transcript does not provide..."
+
+Instead, express the analytical consequence.
+
+============================================================
+7. CRITICAL ANALYSIS TONE
+============================================================
+
+Use professional analytical language.
+
+Avoid:
+
 - emotional language
-- slang
-- excessive repetition
-- vague statements
-- unnecessary adjectives
+- sensational language
+- insulting language
+- casual language
+- excessive criticism
+- unsupported judgments
+
+The objective is:
+
+SHARP BUT FAIR.
 
 ============================================================
-SUMMARY
+8. IMPLICATIONS
 ============================================================
 
-The summary must answer:
-
-- What is this content about?
-- What is the central message?
-- What are the most important issues?
-- What conclusion can reasonably be drawn?
-
-The summary must NOT simply list topics.
-
-It should explain the overall substance.
-
-Maximum approximately 150 words.
-
-============================================================
-KEY POINTS
-============================================================
-
-Provide exactly 5 important points.
-
-Each point should contain substantive information.
-
-Do not repeat the summary.
-
-Do not create trivial points.
-
-============================================================
-CRITICAL ANALYSIS
-============================================================
-
-Provide exactly 3 meaningful analytical observations.
-
-Each observation must explain:
-
-- what the issue is
-- why it matters
-
-Only use evidence available in the transcript.
-
-============================================================
-IMPLICATIONS
-============================================================
-
-Provide exactly 4 implications when the transcript supports them.
+Provide up to 4 meaningful implications.
 
 Implications may include:
 
 - practical consequences
 - risks
 - opportunities
+- decision considerations
+- broader significance
+- limitations
 - lessons
-- considerations for decision makers
 
-Do not invent implications unrelated to the transcript.
+Only provide implications supported by the content.
 
-If fewer implications are genuinely supported,
-provide fewer.
+Do not invent consequences.
 
 ============================================================
-TAKEAWAYS
+9. TAKEAWAYS
 ============================================================
 
 Provide exactly 3 concise takeaways.
 
-They should represent the most useful conclusions
-a professional reader should remember.
+These should represent the most important conclusions
+that a professional reader should remember.
 
 ============================================================
-LANGUAGES
+10. LANGUAGE
 ============================================================
 
-Produce both:
+Produce BOTH:
 
-ENGLISH
+English
 
 and
 
-INDONESIAN
+Indonesian.
 
 The Indonesian version must preserve the meaning
 of the English version.
 
-Do not add new facts during translation.
+Do NOT add facts during translation.
 
 ============================================================
-OUTPUT FORMAT
+11. OUTPUT
 ============================================================
 
-Return ONLY a valid JSON object.
+Return ONLY valid JSON.
 
 Do NOT use Markdown.
 
 Do NOT use code fences.
 
-Do NOT add explanations before or after the JSON.
+Do NOT add commentary before or after the JSON.
 
-The structure MUST be:
+The exact structure is:
 
 {
   "en": {
@@ -1212,6 +1611,44 @@ The structure MUST be:
     "takeaways": []
   }
 }
+
+============================================================
+12. STRICT DATA TYPES
+============================================================
+
+summary:
+STRING
+
+key_points:
+ARRAY OF STRINGS
+
+critical_analysis:
+ARRAY OF STRINGS
+
+implications:
+ARRAY OF STRINGS
+
+takeaways:
+ARRAY OF STRINGS
+
+NEVER return:
+
+critical_analysis:
+[
+  {
+    "issue": "...",
+    "reason": "..."
+  }
+]
+
+ALWAYS return:
+
+critical_analysis:
+[
+  "Professional analytical statement...",
+  "Professional analytical statement...",
+  "Professional analytical statement..."
+]
 """
 
 
@@ -1225,7 +1662,7 @@ def build_ai_prompt(
 ):
 
     return f"""
-Analyze the following YouTube video transcript.
+Analyze the following YouTube video.
 
 ============================================================
 VIDEO TITLE
@@ -1234,16 +1671,18 @@ VIDEO TITLE
 {title}
 
 ============================================================
-TRANSCRIPT
+SOURCE TRANSCRIPT
 ============================================================
 
 {transcript_text}
 
 ============================================================
-FINAL INSTRUCTION
+FINAL REQUIREMENTS
 ============================================================
 
-Produce a professional, evidence-based analysis.
+Produce a professional office-quality analysis.
+
+The analysis must be based ONLY on the source transcript.
 
 Do not identify speakers.
 
@@ -1251,11 +1690,40 @@ Do not use outside knowledge.
 
 Do not invent information.
 
-Prioritize the central themes and substantive claims.
+Do not merely repeat the transcript.
 
-Distinguish facts, opinions, assumptions and interpretations.
+Prioritize:
 
-Identify weaknesses only when supported by the transcript.
+- central message
+- substantive points
+- claims
+- evidence
+- analytical limitations
+- logical consistency
+- context
+- implications
+
+For Critical Analysis:
+
+Write professional analytical prose.
+
+NEVER return:
+
+{{
+    "issue": "...",
+    "reason": "..."
+}}
+
+Instead return one professional analytical sentence
+or paragraph per item.
+
+Do not use the labels:
+
+Issue
+Reason
+Evidence
+Transcript
+Observation
 
 Return ONLY the required JSON object.
 """
@@ -1295,16 +1763,28 @@ async def call_ai(
                     }
                 ],
 
+                # =================================================
+                # JSON MODE
+                # =================================================
+
                 "response_format": {
                     "type":
                         "json_object"
                 },
+
+                # =================================================
+                # DETERMINISTIC
+                # =================================================
 
                 "temperature":
                     0.0,
 
                 "seed":
                     42,
+
+                # =================================================
+                # OUTPUT SPACE
+                # =================================================
 
                 "max_tokens":
                     5000
@@ -1320,7 +1800,7 @@ async def call_ai(
         )
 
     # ========================================================
-    # STANDARD RESPONSE
+    # STANDARD WORKERS AI RESPONSE
     # ========================================================
 
     if isinstance(
@@ -1448,6 +1928,10 @@ async def call_ai(
 
         return response.strip()
 
+    # ========================================================
+    # UNKNOWN RESPONSE
+    # ========================================================
+
     raise RuntimeError(
         "Cloudflare AI returned an "
         "unexpected response format: "
@@ -1474,6 +1958,10 @@ async def analyze_single_pass(
         prompt
     )
 
+    # ========================================================
+    # PARSE
+    # ========================================================
+
     try:
 
         parsed = parse_ai_json(
@@ -1486,10 +1974,10 @@ async def analyze_single_pass(
             raw
         )
 
-        if len(preview) > 5000:
+        if len(preview) > 6000:
 
             preview = (
-                preview[:5000]
+                preview[:6000]
                 + "..."
             )
 
@@ -1499,6 +1987,10 @@ async def analyze_single_pass(
             f"Parser error: {str(exc)}"
         )
 
+    # ========================================================
+    # ENGLISH
+    # ========================================================
+
     en_data = normalize_analysis(
         parsed.get(
             "en",
@@ -1506,12 +1998,20 @@ async def analyze_single_pass(
         )
     )
 
+    # ========================================================
+    # INDONESIAN
+    # ========================================================
+
     id_data = normalize_analysis(
         parsed.get(
             "id",
             {}
         )
     )
+
+    # ========================================================
+    # RETURN
+    # ========================================================
 
     return {
 
@@ -1524,11 +2024,11 @@ async def analyze_single_pass(
 
 
 # ============================================================
-# LONG TRANSCRIPT CHUNK PROMPT
+# CHUNK SYSTEM PROMPT
 # ============================================================
 
 CHUNK_SYSTEM_PROMPT = """
-You are a professional transcript analyst.
+You are a professional content analyst.
 
 Analyze ONLY the provided transcript segment.
 
@@ -1540,21 +2040,24 @@ Do not use outside knowledge.
 
 Do not invent facts.
 
-Extract substantive information and analytical issues.
+Extract substantive information.
 
-Focus on:
+Evaluate:
 
-- claims
+- important claims
 - arguments
 - evidence
-- important facts
 - assumptions
-- contradictions
 - logical weaknesses
-- missing evidence
-- important implications
+- contradictions
+- missing context
+- implications
 
 Return ONLY valid JSON.
+
+Do not use Markdown.
+
+Do not use code fences.
 
 Structure:
 
@@ -1566,7 +2069,18 @@ Structure:
   "takeaways": []
 }
 
-Keep all items concise and evidence-based.
+IMPORTANT:
+
+critical_analysis MUST contain strings.
+
+NEVER return objects such as:
+
+{
+  "issue": "...",
+  "reason": "..."
+}
+
+Write concise professional analytical prose.
 """
 
 
@@ -1584,11 +2098,20 @@ async def analyze_chunk(
 Analyze transcript segment
 {chunk_index} of {total_chunks}.
 
-TRANSCRIPT SEGMENT:
+============================================================
+TRANSCRIPT SEGMENT
+============================================================
 
 {chunk}
 
+============================================================
+INSTRUCTION
+============================================================
+
 Return ONLY valid JSON.
+
+Critical analysis must be professional prose
+and strings only.
 """
 
     raw = await call_ai(
@@ -1634,9 +2157,9 @@ You are a senior professional content analyst.
 Create a final professional analysis from
 multiple transcript segment analyses.
 
-The final result must represent the ENTIRE video.
+The final analysis must represent the entire video.
 
-Do not over-focus on one segment.
+Do not over-focus on a single segment.
 
 Do not identify speakers.
 
@@ -1644,13 +2167,32 @@ Do not invent facts.
 
 Remove duplicated points.
 
-Prioritize important information.
+Prioritize substantive information.
 
-Distinguish facts, claims, opinions,
-assumptions and interpretations.
+Distinguish:
 
-Critical observations must be supported
-by the segment analyses.
+- facts
+- claims
+- opinions
+- assumptions
+- interpretations
+
+Critical analysis must evaluate:
+
+- evidence
+- logical consistency
+- unsupported claims
+- missing context
+- assumptions
+- contradictions
+- overgeneralization
+- significance
+
+Do not manufacture criticism.
+
+Critical analysis MUST contain strings only.
+
+NEVER return objects.
 
 Return ONLY valid JSON.
 
@@ -1676,7 +2218,7 @@ Structure:
 Requirements:
 
 summary:
-- approximately 100 to 150 words
+- approximately 120 to 150 words
 
 key_points:
 - exactly 5
@@ -1689,20 +2231,46 @@ implications:
 
 takeaways:
 - exactly 3
+
+Do not use labels such as:
+
+Issue
+Reason
+Evidence
+Transcript
+Observation
+
+Critical analysis must be written as natural
+professional analytical prose.
 """
 
     user_prompt = f"""
-VIDEO TITLE:
+============================================================
+VIDEO TITLE
+============================================================
 
 {title}
 
-ANALYSES FROM ALL TRANSCRIPT SEGMENTS:
+============================================================
+SEGMENT ANALYSES
+============================================================
 
 {material}
 
-Create the final professional analysis.
-Make sure important information from later
-segments is not ignored.
+============================================================
+FINAL TASK
+============================================================
+
+Create one integrated professional analysis
+of the entire video.
+
+Do not simply concatenate the segment analyses.
+
+Synthesize them.
+
+Prioritize the most important themes and conclusions.
+
+Return ONLY valid JSON.
 """
 
     raw = await call_ai(
@@ -1722,10 +2290,10 @@ segments is not ignored.
             raw
         )
 
-        if len(preview) > 5000:
+        if len(preview) > 6000:
 
             preview = (
-                preview[:5000]
+                preview[:6000]
                 + "..."
             )
 
@@ -1811,7 +2379,7 @@ async def analyze_video(
     try:
 
         # ====================================================
-        # VALIDATE REQUEST
+        # VALIDATE BODY
         # ====================================================
 
         if not isinstance(
@@ -1832,7 +2400,7 @@ async def analyze_video(
             }
 
         # ====================================================
-        # GET URL
+        # URL
         # ====================================================
 
         url = clean_text(
@@ -1879,7 +2447,7 @@ async def analyze_video(
             }
 
         # ====================================================
-        # NORMALIZE URL
+        # NORMALIZED URL
         # ====================================================
 
         normalized_url = (
@@ -1906,7 +2474,7 @@ async def analyze_video(
         )
 
         # ====================================================
-        # GET TRANSCRIPT
+        # TRANSCRIPT
         # ====================================================
 
         transcript_result = (
@@ -1946,6 +2514,10 @@ async def analyze_video(
                         502
                     )
             }
+
+        # ====================================================
+        # TRANSCRIPT
+        # ====================================================
 
         transcript = (
             transcript_result.get(
@@ -2000,7 +2572,7 @@ async def analyze_video(
             }
 
         # ====================================================
-        # HASH
+        # TRANSCRIPT HASH
         # ====================================================
 
         transcript_hash = (
@@ -2010,7 +2582,7 @@ async def analyze_video(
         )
 
         # ====================================================
-        # TRANSCRIPT LANGUAGE
+        # LANGUAGE
         # ====================================================
 
         transcript_language = ""
@@ -2030,12 +2602,16 @@ async def analyze_video(
             )
 
         # ====================================================
-        # AI ANALYSIS
+        # LENGTH
         # ====================================================
 
         transcript_characters = len(
             full_transcript
         )
+
+        # ====================================================
+        # AI ANALYSIS
+        # ====================================================
 
         if (
             transcript_characters
@@ -2076,11 +2652,9 @@ async def analyze_video(
             )
 
         # ====================================================
-        # IMPORTANT:
-        # TRANSCRIPT RESPONSE FORMAT
+        # IMPORTANT FRONTEND COMPATIBILITY
         #
-        # This structure is required by the current
-        # script.js:
+        # script.js expects:
         #
         # data.transcript.title
         # data.transcript.language
@@ -2109,7 +2683,11 @@ async def analyze_video(
                 "success",
 
             "version":
-                "5.0.0",
+                "6.0.0",
+
+            # =================================================
+            # VIDEO
+            # =================================================
 
             "youtube_url":
                 normalized_url,
