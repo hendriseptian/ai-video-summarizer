@@ -430,7 +430,7 @@ async def call_ai(
     try:
 
         response = await env.AI.run(
-            "@cf/meta/llama-3.1-8b-instruct",
+            "@cf/meta/llama-3.1-8b-instruct-fast",
             {
                 "messages": [
                     {
@@ -442,8 +442,15 @@ async def call_ai(
                         "content": user_prompt
                     }
                 ],
+
+                # Stabil / lebih konsisten
                 "temperature": 0.0,
-                "enable_thinking": False
+
+                # Seed tetap untuk membantu hasil konsisten
+                "seed": 42,
+
+                # Batasi output supaya tidak terlalu panjang
+                "max_tokens": 2048
             }
         )
 
@@ -453,11 +460,10 @@ async def call_ai(
             status_code=502,
             detail=(
                 "Cloudflare AI request failed: "
-                f"{str(exc)}"
+                f"{type(exc).__name__}: {str(exc)}"
             )
         )
 
-    # Cloudflare Workers AI response.
     if isinstance(response, dict):
 
         if "response" in response:
