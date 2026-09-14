@@ -235,6 +235,50 @@ Do not turn interpretation into a key point.
 Do not include unsupported explanations.
 
 ============================================================
+INFERENCE BOUNDARY
+============================================================
+
+Every Inference must be directly and logically derived from
+one or more statements explicitly present in the transcript.
+
+Inference must remain specific to the events, statements,
+people, or actions described in the transcript.
+
+Do NOT infer:
+- motives or intentions
+- government commitment
+- government effectiveness
+- public sentiment beyond what is stated
+- political consequences
+- social/economic consequences
+- root causes
+- future events
+- increased tensions
+- trust or distrust
+- broader security conditions
+- recommendations or policy needs
+
+unless the transcript explicitly provides evidence for them.
+
+Prefer the narrowest possible interpretation.
+
+If an interpretation requires information not stated in the transcript,
+do not include it.
+
+============================================================
+IMPLICATIONS RULE
+============================================================
+
+Implications must be limited to consequences that can be
+reasonably connected to the specific information in the transcript.
+
+Do not introduce broader political, social, economic, security,
+or policy implications unless supported by the transcript.
+
+If no reliable implication can be derived from the transcript,
+return fewer implications rather than inventing broader ones.
+
+============================================================
 4. CRITICAL ANALYSIS
 ============================================================
 
@@ -673,6 +717,17 @@ Before returning the final JSON:
 19. The word "Inference:" does NOT make an unsupported statement
     acceptable. The inference must still be directly grounded
     in the transcript.
+20. Verify that every inference remains specific to the
+    events, statements, people, or actions explicitly described
+    in the transcript.
+21. Reject any inference involving motives, intentions,
+    political consequences, social consequences, economic
+    consequences, security conditions, future events, root causes,
+    public sentiment, trust, government effectiveness, or policy
+    recommendations unless explicitly supported by the transcript.
+22. Prefer omission over speculation.
+23. When evidence is weak or ambiguous, return fewer
+    implications rather than generating a broader interpretation.
 """
 
 
