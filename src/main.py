@@ -1,29 +1,63 @@
-from pathlib import Path
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from workers import asgi, env
+import httpx2 as httpx
+
+import ast
+import hashlib
+import json
 import re
-import py_compile
 
-src = Path("/mnt/data/main_fixed_cloudflare.py")
-out = Path("/mnt/data/main_v2.py")
 
-text = src.read_text(encoding="utf-8")
+# ============================================================
+# APPLICATION
+# ============================================================
 
-# ------------------------------------------------------------
-# 1) Version
-# ------------------------------------------------------------
-text = text.replace(
-    'version="7.1.0"',
-    'version="8.0.0"',
-    1
-)
-text = text.replace(
-    '"7.1.0"',
-    '"8.0.0"'
+app = FastAPI(
+    title="AI Video Summarizer API",
+    version="8.0.0"
 )
 
-# ------------------------------------------------------------
-# 2) Replace SYSTEM_PROMPT
-# ------------------------------------------------------------
-new_system_prompt = r'''SYSTEM_PROMPT = """
+
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
+
+TRANSCRIPT_API_URL = (
+    "https://api.freetranscriptapi.com/v1/transcript"
+)
+
+CHUNK_SIZE = 18000
+
+MAX_SINGLE_PASS_CHARS = 100000
+
+MAX_FINAL_CONTEXT_CHARS = 90000
+
+AI_TIMEOUT = 120.0
+
+AI_MAX_TOKENS = 5000
+
+
+# ============================================================
+# SYSTEM PROMPT
+# ============================================================
+
+SYSTEM_PROMPT = """
 You are a professional media monitoring and news analysis AI.
 
 Analyze ONLY the supplied video transcript.
@@ -617,20 +651,9 @@ Before returning JSON:
 24. If evidence is insufficient, omit or reduce the section.
 25. Return valid JSON only.
 """
-'''
-text = re.sub(
-    r'SYSTEM_PROMPT = """.*?"""\n\n\n# ============================================================\n# CHUNK PROMPT',
-    new_system_prompt + '\n\n# ============================================================\n# CHUNK PROMPT',
-    text,
-    count=1,
-    flags=re.S
-)
 
-# ------------------------------------------------------------
-# 3) Add chunk-specific system prompt and monitoring prompt
-# ------------------------------------------------------------
-anchor = '# ============================================================\n# CHUNK PROMPT'
-insert = r'''# ============================================================
+
+# ============================================================
 # CHUNK SYSTEM PROMPT
 # ============================================================
 
@@ -889,15 +912,11 @@ Use exactly this structure:
 }
 """
 
-'''
-text = text.replace(anchor, insert + anchor, 1)
+# ============================================================
+# CHUNK PROMPT
+# ============================================================
 
-# ------------------------------------------------------------
-# 4) Replace CHUNK_PROMPT
-# ------------------------------------------------------------
-text = re.sub(
-    r'CHUNK_PROMPT = """.*?"""\n\n\n# ============================================================\n# ERROR RESPONSE',
-    r'''CHUNK_PROMPT = """
+CHUNK_PROMPT = """
 Extract the important factual information from this transcript
 section for later synthesis.
 
@@ -923,16 +942,493 @@ TRANSCRIPT SECTION:
 
 
 # ============================================================
-# ERROR RESPONSE''',
-    text,
-    count=1,
-    flags=re.S
-)
+# ERROR RESPONSE
+# ============================================================
 
-# ------------------------------------------------------------
-# 5) Replace normalization block
-# ------------------------------------------------------------
-new_norm = r'''# ============================================================
+def error_response(
+    message,
+    error_type="server_error",
+    status=500
+):
+    return {
+        "status": "error",
+        "message": message,
+        "error": message,
+        "error_type": error_type,
+        "http_status": status
+    }
+
+
+# ============================================================
+# YOUTUBE URL NORMALIZATION
+# ============================================================
+
+def normalize_youtube_url(
+    url
+):
+    if not isinstance(
+        url,
+        str
+    ):
+        return ""
+
+    url = url.strip()
+
+    if not url:
+        return ""
+
+    url = re.sub(
+        r"\s+",
+        "",
+        url
+    )
+
+    patterns = [
+        r"youtube\.com/watch\?[^#]*v=([A-Za-z0-9_-]{11})",
+        r"youtu\.be/([A-Za-z0-9_-]{11})",
+        r"youtube\.com/shorts/([A-Za-z0-9_-]{11})"
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            url,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            video_id = match.group(
+                1
+            )
+
+            return (
+                "https://www.youtube.com/watch?v="
+                + video_id
+            )
+
+    return ""
+
+
+# ============================================================
+# EXTRACT VIDEO ID
+# ============================================================
+
+def extract_video_id(
+    url
+):
+    normalized = normalize_youtube_url(
+        url
+    )
+
+    if not normalized:
+        return ""
+
+    match = re.search(
+        r"[?&]v=([A-Za-z0-9_-]{11})",
+        normalized
+    )
+
+    if match:
+        return match.group(
+            1
+        )
+
+    return ""
+
+
+# ============================================================
+# FORMAT TIMESTAMP
+# ============================================================
+
+def format_timestamp(
+    seconds
+):
+    try:
+        total_seconds = int(
+            float(seconds)
+        )
+    except Exception:
+        total_seconds = 0
+
+    if total_seconds < 0:
+        total_seconds = 0
+
+    hours = total_seconds // 3600
+
+    minutes = (
+        total_seconds % 3600
+    ) // 60
+
+    secs = (
+        total_seconds % 60
+    )
+
+    if hours > 0:
+
+        return (
+            f"{hours:02d}:"
+            f"{minutes:02d}:"
+            f"{secs:02d}"
+        )
+
+    return (
+        f"{minutes:02d}:"
+        f"{secs:02d}"
+    )
+
+
+# ============================================================
+# BUILD TRANSCRIPT TEXT
+# ============================================================
+
+def build_transcript_text(
+    segments
+):
+    lines = []
+
+    if not isinstance(
+        segments,
+        list
+    ):
+        return ""
+
+    for segment in segments:
+
+        if not isinstance(
+            segment,
+            dict
+        ):
+            continue
+
+        text = str(
+            segment.get(
+                "text",
+                ""
+            )
+        ).strip()
+
+        if not text:
+            continue
+
+        start = segment.get(
+            "start",
+            0
+        )
+
+        timestamp = format_timestamp(
+            start
+        )
+
+        lines.append(
+            f"[{timestamp}] {text}"
+        )
+
+    return "\n".join(
+        lines
+    )
+
+
+# ============================================================
+# TRANSCRIPT HASH
+# ============================================================
+
+def create_transcript_hash(
+    text
+):
+    return hashlib.sha256(
+        text.encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+# ============================================================
+# CHUNK TEXT
+# ============================================================
+
+def chunk_text(
+    text,
+    chunk_size=CHUNK_SIZE
+):
+    if not text:
+        return []
+
+    chunks = []
+
+    start = 0
+
+    text_length = len(
+        text
+    )
+
+    while start < text_length:
+
+        end = min(
+            start + chunk_size,
+            text_length
+        )
+
+        if end < text_length:
+
+            split_position = text.rfind(
+                "\n",
+                start,
+                end
+            )
+
+            minimum_split = (
+                start +
+                int(
+                    chunk_size *
+                    0.65
+                )
+            )
+
+            if (
+                split_position >
+                minimum_split
+            ):
+                end = split_position
+
+        chunk = text[
+            start:end
+        ].strip()
+
+        if chunk:
+            chunks.append(
+                chunk
+            )
+
+        start = end
+
+    return chunks
+
+
+# ============================================================
+# RUN AI
+# ============================================================
+
+async def run_ai(
+    system_prompt,
+    user_prompt,
+    max_tokens=AI_MAX_TOKENS
+):
+
+    payload = {
+        "messages": [
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": user_prompt
+            }
+        ],
+        "response_format": {
+            "type": "json_object"
+        },
+        "temperature": 0.0,
+        "seed": 42,
+        "max_tokens": max_tokens
+    }
+
+    try:
+
+        result = await env.AI.run(
+            AI_MODEL,
+            payload
+        )
+
+        return result
+
+    except Exception as error:
+
+        raise RuntimeError(
+            "AI model request failed: "
+            + str(error)
+        )
+
+
+# ============================================================
+# EXTRACT AI TEXT
+# ============================================================
+
+def extract_ai_text(
+    result
+):
+
+    if isinstance(
+        result,
+        str
+    ):
+        return result
+
+    if isinstance(
+        result,
+        dict
+    ):
+
+        if "response" in result:
+
+            response = result[
+                "response"
+            ]
+
+            if isinstance(
+                response,
+                str
+            ):
+                return response
+
+            if isinstance(
+                response,
+                dict
+            ):
+                return json.dumps(
+                    response,
+                    ensure_ascii=False
+                )
+
+        if "result" in result:
+
+            nested = result[
+                "result"
+            ]
+
+            if isinstance(
+                nested,
+                str
+            ):
+                return nested
+
+            if isinstance(
+                nested,
+                dict
+            ):
+                return json.dumps(
+                    nested,
+                    ensure_ascii=False
+                )
+
+        return json.dumps(
+            result,
+            ensure_ascii=False
+        )
+
+    return str(
+        result
+    )
+
+
+# ============================================================
+# CLEAN JSON
+# ============================================================
+
+def clean_json_text(
+    text
+):
+
+    if not text:
+        return ""
+
+    text = str(
+        text
+    ).strip()
+
+    text = re.sub(
+        r"^```(?:json)?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    text = re.sub(
+        r"\s*```$",
+        "",
+        text
+    )
+
+    first = text.find(
+        "{"
+    )
+
+    last = text.rfind(
+        "}"
+    )
+
+    if (
+        first >= 0 and
+        last > first
+    ):
+
+        text = text[
+            first:last + 1
+        ]
+
+    return text.strip()
+
+
+# ============================================================
+# PARSE AI JSON
+# ============================================================
+
+def parse_ai_json(
+    result
+):
+
+    text = extract_ai_text(
+        result
+    )
+
+    text = clean_json_text(
+        text
+    )
+
+    if not text:
+
+        raise ValueError(
+            "AI returned an empty response."
+        )
+
+    try:
+
+        parsed = json.loads(
+            text
+        )
+
+        if isinstance(
+            parsed,
+            dict
+        ):
+            return parsed
+
+    except Exception:
+        pass
+
+    try:
+
+        parsed = ast.literal_eval(
+            text
+        )
+
+        if isinstance(
+            parsed,
+            dict
+        ):
+            return parsed
+
+    except Exception:
+        pass
+
+    raise ValueError(
+        "AI returned invalid JSON."
+    )
+
+
+# ============================================================
 # NORMALIZE TEXT
 # ============================================================
 
@@ -1621,37 +2117,343 @@ def normalize_monitoring_report(data):
     }
 
 
-'''
-text = re.sub(
-    r'# ============================================================\n# NORMALIZE TEXT.*?# ============================================================\n# FETCH TRANSCRIPT',
-    new_norm + '# ============================================================\n# FETCH TRANSCRIPT',
-    text,
-    count=1,
-    flags=re.S
-)
+# ============================================================
+# FETCH TRANSCRIPT
+# ============================================================
 
-# ------------------------------------------------------------
-# 6) Use chunk-specific system prompt
-# ------------------------------------------------------------
-text = text.replace(
-    'result = await run_ai(\n            SYSTEM_PROMPT,\n            prompt,\n            2500\n        )',
-    'result = await run_ai(\n            CHUNK_SYSTEM_PROMPT,\n            prompt,\n            2500\n        )',
-    1
-)
+async def fetch_transcript(
+    video_url
+):
 
-# ------------------------------------------------------------
-# 7) Replace large-transcript final prompt wording
-# ------------------------------------------------------------
-text = text.replace(
-    'Create the final professional report from the following\nanalysis notes.',
-    'Create the final professional video analysis from the following\nfactual extraction notes.',
-    1
-)
+    normalized_url = normalize_youtube_url(
+        video_url
+    )
 
-# ------------------------------------------------------------
-# 8) Add monitoring endpoint before ROOT
-# ------------------------------------------------------------
-monitoring_endpoint = r'''
+    if not normalized_url:
+
+        raise ValueError(
+            "Invalid YouTube URL."
+        )
+
+    try:
+
+        async with httpx.AsyncClient(
+            timeout=AI_TIMEOUT,
+            follow_redirects=True
+        ) as client:
+
+            response = await client.get(
+                TRANSCRIPT_API_URL,
+                params={
+                    "video_url":
+                        normalized_url
+                }
+            )
+
+    except Exception as error:
+
+        raise RuntimeError(
+            "Failed to connect to transcript service: "
+            + str(error)
+        )
+
+    if response.status_code != 200:
+
+        try:
+
+            error_data = response.json()
+
+            message = error_data.get(
+                "message",
+                (
+                    "Transcript service returned HTTP "
+                    + str(
+                        response.status_code
+                    )
+                )
+            )
+
+        except Exception:
+
+            message = (
+                response.text
+                or (
+                    "Transcript service returned HTTP "
+                    + str(
+                        response.status_code
+                    )
+                )
+            )
+
+        raise RuntimeError(
+            message
+        )
+
+    try:
+
+        data = response.json()
+
+    except Exception:
+
+        raise RuntimeError(
+            "Transcript service returned invalid JSON."
+        )
+
+    if not isinstance(
+        data,
+        dict
+    ):
+
+        raise RuntimeError(
+            "Transcript service returned invalid data."
+        )
+
+    segments = data.get(
+        "transcript",
+        []
+    )
+
+    if not isinstance(
+        segments,
+        list
+    ):
+        segments = []
+
+    cleaned = []
+
+    for segment in segments:
+
+        if not isinstance(
+            segment,
+            dict
+        ):
+            continue
+
+        text = str(
+            segment.get(
+                "text",
+                ""
+            )
+        ).strip()
+
+        if not text:
+            continue
+
+        try:
+
+            start = float(
+                segment.get(
+                    "start",
+                    0
+                )
+            )
+
+        except Exception:
+
+            start = 0.0
+
+        try:
+
+            duration = float(
+                segment.get(
+                    "duration",
+                    0
+                )
+            )
+
+        except Exception:
+
+            duration = 0.0
+
+        cleaned.append(
+            {
+                "text":
+                    text,
+
+                "start":
+                    start,
+
+                "duration":
+                    duration
+            }
+        )
+
+    if not cleaned:
+
+        raise RuntimeError(
+            "Transcript is empty or unavailable for this video."
+        )
+
+    return {
+        "title":
+            data.get(
+                "title",
+                "Untitled Video"
+            ),
+
+        "language":
+            data.get(
+                "language",
+                "unknown"
+            ),
+
+        "transcript":
+            cleaned
+    }
+
+
+# ============================================================
+# ANALYZE LARGE TRANSCRIPT
+# ============================================================
+
+async def analyze_large_transcript(
+    transcript_text
+):
+
+    chunks = chunk_text(
+        transcript_text
+    )
+
+    if not chunks:
+
+        raise ValueError(
+            "Transcript could not be divided into chunks."
+        )
+
+    notes = []
+
+    for index, chunk in enumerate(
+        chunks,
+        start=1
+    ):
+
+        prompt = (
+            CHUNK_PROMPT
+            + "\n\nCHUNK "
+            + str(index)
+            + " OF "
+            + str(len(chunks))
+            + "\n\n"
+            + chunk
+        )
+
+        result = await run_ai(
+            CHUNK_SYSTEM_PROMPT,
+            prompt,
+            2500
+        )
+
+        notes.append(
+            extract_ai_text(
+                result
+            )
+        )
+
+    combined_notes = "\n\n".join(
+        notes
+    )
+
+    combined_notes = combined_notes[
+        :MAX_FINAL_CONTEXT_CHARS
+    ]
+
+    final_prompt = """
+Create the final professional video analysis from the following
+factual extraction notes.
+
+Use all relevant information.
+
+Follow the required JSON structure.
+
+The executive summary must normally be approximately
+180-300 words.
+
+Do not invent facts.
+
+Do not identify speakers.
+
+Return ONLY valid JSON.
+
+ANALYSIS NOTES:
+
+""" + combined_notes
+
+    final_result = await run_ai(
+        SYSTEM_PROMPT,
+        final_prompt,
+        5000
+    )
+
+    analysis = normalize_analysis(
+        parse_ai_json(
+            final_result
+        )
+    )
+
+    return (
+        analysis,
+        "chunked",
+        len(chunks)
+    )
+
+
+# ============================================================
+# ANALYZE TRANSCRIPT
+# ============================================================
+
+async def analyze_transcript(
+    transcript_text
+):
+
+    if len(
+        transcript_text
+    ) <= MAX_SINGLE_PASS_CHARS:
+
+        prompt = """
+Create the final professional video analysis from
+the following transcript.
+
+Use ALL relevant information.
+
+The executive summary must normally contain
+approximately 180-300 words.
+
+Follow the required JSON structure.
+
+Do not invent facts.
+
+Do not identify speakers.
+
+Return ONLY valid JSON.
+
+TRANSCRIPT:
+
+""" + transcript_text
+
+        result = await run_ai(
+            SYSTEM_PROMPT,
+            prompt,
+            5000
+        )
+
+        analysis = normalize_analysis(
+            parse_ai_json(
+                result
+            )
+        )
+
+        return (
+            analysis,
+            "single_pass",
+            1
+        )
+
+    return await analyze_large_transcript(
+        transcript_text
+    )
+
+
+
 # ============================================================
 # MONITORING REPORT ENDPOINT
 # ============================================================
@@ -2068,30 +2870,132 @@ AGGREGATION DATA:
         )
 
 
-'''
-text = text.replace(
-    '# ============================================================\n# ROOT',
-    monitoring_endpoint + '# ============================================================\n# ROOT',
-    1
-)
+# ============================================================
+# ROOT
+# ============================================================
 
-# ------------------------------------------------------------
-# 9) Add optional metadata to /analyze response
-# ------------------------------------------------------------
-# Capture metadata from request body.
-needle = '''        video_id = extract_video_id(
-            normalized_url
-        )
+@app.get("/")
+async def root():
 
-        if not video_id:
+    return {
+        "status":
+            "ok",
+
+        "service":
+            "AI Video Summarizer API",
+
+        "version":
+            "8.0.0"
+    }
+
+
+# ============================================================
+# HEALTH
+# ============================================================
+
+@app.get("/health")
+async def health():
+
+    return {
+        "status":
+            "ok",
+
+        "version":
+            "8.0.0"
+    }
+
+
+# ============================================================
+# ANALYZE ENDPOINT
+# ============================================================
+
+@app.post("/analyze")
+async def analyze(
+    request: Request
+):
+
+    try:
+
+        # ----------------------------------------------------
+        # READ JSON
+        # ----------------------------------------------------
+
+        try:
+
+            body = await request.json()
+
+        except Exception:
 
             return error_response(
-                "Could not extract YouTube video ID.",
+                "Invalid JSON request body.",
+                "invalid_json",
+                400
+            )
+
+        if not isinstance(
+            body,
+            dict
+        ):
+
+            return error_response(
+                "Request body must be a JSON object.",
+                "invalid_request",
+                400
+            )
+
+        # ----------------------------------------------------
+        # READ URL
+        # ----------------------------------------------------
+
+        video_url = (
+            body.get(
+                "video_url"
+            )
+            or body.get(
+                "youtube_url"
+            )
+            or body.get(
+                "url"
+            )
+            or ""
+        )
+
+        if not isinstance(
+            video_url,
+            str
+        ):
+
+            video_url = str(
+                video_url
+            )
+
+        video_url = video_url.strip()
+
+        # ----------------------------------------------------
+        # VALIDATE URL
+        # ----------------------------------------------------
+
+        if not video_url:
+
+            return error_response(
+                "YouTube URL is required.",
                 "validation_error",
                 400
             )
-'''
-replacement = '''        video_id = extract_video_id(
+
+        normalized_url = normalize_youtube_url(
+            video_url
+        )
+
+        if not normalized_url:
+
+            return error_response(
+                "Invalid YouTube URL.",
+                "validation_error",
+                400
+            )
+
+        video_id = extract_video_id(
             normalized_url
         )
 
@@ -2121,19 +3025,66 @@ replacement = '''        video_id = extract_video_id(
             or body.get("date", "")
             or ""
         ).strip()
-'''
-text = text.replace(needle, replacement, 1)
 
-# Replace video response block to include metadata.
-old_video = '''            "video": {
-                "id":
-                    video_id,
+        # ----------------------------------------------------
+        # GET TRANSCRIPT
+        # ----------------------------------------------------
 
-                "url":
-                    normalized_url
-            },
-'''
-new_video = '''            "video": {
+        transcript_data = await fetch_transcript(
+            normalized_url
+        )
+
+        transcript_segments = (
+            transcript_data[
+                "transcript"
+            ]
+        )
+
+        # ----------------------------------------------------
+        # BUILD TRANSCRIPT TEXT
+        # ----------------------------------------------------
+
+        transcript_text = build_transcript_text(
+            transcript_segments
+        )
+
+        if not transcript_text:
+
+            return error_response(
+                "Transcript is empty.",
+                "transcript_error",
+                422
+            )
+
+        # ----------------------------------------------------
+        # HASH
+        # ----------------------------------------------------
+
+        transcript_hash = create_transcript_hash(
+            transcript_text
+        )
+
+        # ----------------------------------------------------
+        # AI ANALYSIS
+        # ----------------------------------------------------
+
+        (
+            analysis,
+            analysis_mode,
+            total_chunks
+        ) = await analyze_transcript(
+            transcript_text
+        )
+
+        # ----------------------------------------------------
+        # FINAL RESPONSE
+        # ----------------------------------------------------
+
+        return {
+            "status":
+                "success",
+
+            "video": {
                 "id":
                     video_id,
 
@@ -2154,19 +3105,75 @@ new_video = '''            "video": {
                 "publication_date":
                     publication_date
             },
-'''
-text = text.replace(old_video, new_video, 1)
 
-# ------------------------------------------------------------
-# 10) Save and compile
-# ------------------------------------------------------------
-out.write_text(text, encoding="utf-8")
+            "transcript": {
+                "title":
+                    transcript_data[
+                        "title"
+                    ],
 
-py_compile.compile(
-    str(out),
-    doraise=True
-)
+                "language":
+                    transcript_data[
+                        "language"
+                    ],
 
-print(f"V2 created successfully: {out}")
-print(f"Lines: {len(text.splitlines())}")
-print("Syntax check: PASSED")
+                "transcript":
+                    transcript_segments
+            },
+
+            "ai":
+                analysis,
+
+            "processing": {
+                "mode":
+                    analysis_mode,
+
+                "total_segments":
+                    len(
+                        transcript_segments
+                    ),
+
+                "total_chunks":
+                    total_chunks,
+
+                "transcript_characters":
+                    len(
+                        transcript_text
+                    ),
+
+                "transcript_hash":
+                    transcript_hash
+            }
+        }
+
+    except ValueError as error:
+
+        return error_response(
+            str(error),
+            "validation_error",
+            400
+        )
+
+    except RuntimeError as error:
+
+        return error_response(
+            str(error),
+            "processing_error",
+            502
+        )
+
+    except Exception as error:
+
+        return error_response(
+            "Unexpected server error: "
+            + str(error),
+            "server_error",
+            500
+        )
+
+
+# ============================================================
+# CLOUDFLARE ASGI
+# ============================================================
+
+Default = asgi.entrypoint(app)
