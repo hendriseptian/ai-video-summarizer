@@ -15,7 +15,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.2.0"
+    version="9.3.0"
 )
 
 
@@ -943,6 +943,55 @@ Return exactly:
 """
 
 # ============================================================
+# DEDICATED ACTOR EXTRACTION SYSTEM PROMPT
+# ============================================================
+
+ACTOR_EXTRACTION_SYSTEM_PROMPT = """
+You are a strict factual entity-extraction AI for a professional media
+monitoring report.
+
+Extract ONLY people, officials, government agencies, OPDs, institutions,
+or organizations that are explicitly mentioned in the supplied transcript
+or factual notes AND are connected to the event, attendance, participation,
+opening, speech, leadership, representation, or another concrete role.
+
+IMPORTANT: The purpose is to identify WHO is involved, not merely WHAT
+happened.
+
+For every person, identify: FULL NAME + OFFICIAL TITLE/POSITION + ROLE/ACTION.
+
+Rules:
+1. Use ONLY information explicitly present in the source.
+2. NEVER guess or infer a person's name from their title.
+3. NEVER use outside knowledge.
+4. If a person's name is explicitly present, it MUST be included.
+5. If only the title is present, use:
+   "Official Title — name not stated in transcript — role/action"
+6. If both name and title are present, use:
+   "Full Name — Official Title — role/action"
+7. Prefer actual attendees/participants over people merely mentioned.
+8. Do not identify speakers by voice. Only use names explicitly stated in
+   the source.
+9. Do not output generic action-only items such as "attended the opening".
+10. Deduplicate the same person.
+11. Keep the official title as stated or clearly formatted from the source.
+12. Keep the role/action concise and factual.
+13. If an institution/OPD is mentioned without a person, include it only
+    when it has a concrete role in the event.
+
+Return ONLY valid JSON in exactly this structure:
+{
+  "actors": [
+    "Full Name — Official Title — role/action"
+  ]
+}
+
+If no supported actor can be identified, return:
+{"actors": []}
+"""
+
+
+# ============================================================
 # INDONESIAN TRANSLATION SYSTEM PROMPT
 # ============================================================
 
@@ -1678,6 +1727,115 @@ async def run_ai(
             "AI model request failed: "
             + str(error)
         )
+
+
+# ============================================================
+# DEDICATED ACTOR EXTRACTION
+# ============================================================
+
+async def extract_highlighted_actors(source_text):
+
+    if not isinstance(source_text, str):
+        return []
+
+    source_text = source_text.strip()
+
+    if not source_text:
+        return []
+
+    # Keep enough context for names, titles and attendance details.
+    # The actor extractor is factual and intentionally separate from the
+    # broader media analysis so generic action-only bullets are less likely.
+    source_text = source_text[:MAX_FINAL_CONTEXT_CHARS]
+
+    prompt = (
+        "Extract the highlighted actors from the following source.\n\n"
+        "SOURCE:\n\n"
+        + source_text
+    )
+
+    try:
+        result = await run_ai(
+            ACTOR_EXTRACTION_SYSTEM_PROMPT,
+            prompt,
+            3500
+        )
+
+        parsed = parse_ai_json(result)
+
+        actors = parsed.get(
+            "actors",
+            []
+        ) if isinstance(parsed, dict) else []
+
+        if not isinstance(actors, list):
+            return []
+
+        cleaned = []
+        seen = set()
+
+        for actor in actors:
+
+            if isinstance(actor, dict):
+                name = normalize_text(actor.get("name", ""))
+                title = normalize_text(
+                    actor.get("official_title", actor.get("title", ""))
+                )
+                role = normalize_text(
+                    actor.get("role", actor.get("action", ""))
+                )
+
+                if name and title and role:
+                    actor_text = (
+                        name
+                        + " — "
+                        + title
+                        + " — "
+                        + role
+                    )
+                elif title and role:
+                    actor_text = (
+                        title
+                        + " — name not stated in transcript — "
+                        + role
+                    )
+                else:
+                    continue
+            else:
+                actor_text = normalize_text(actor)
+
+            if not actor_text:
+                continue
+
+            # Reject the exact generic action-only output that caused the
+            # current problem.
+            generic = re.sub(
+                r"\s+",
+                " ",
+                actor_text.lower()
+            ).strip()
+
+            if generic in {
+                "attended the opening ceremony",
+                "attended the opening",
+                "led the opening ceremony",
+                "menghadiri upacara pembukaan",
+                "menghadiri acara pembukaan",
+                "memimpin upacara pembukaan"
+            }:
+                continue
+
+            key = actor_text.lower()
+
+            if key not in seen:
+                seen.add(key)
+                cleaned.append(actor_text)
+
+        return cleaned[:12]
+
+    except Exception:
+        # The main analysis remains usable if the dedicated extractor fails.
+        return []
 
 
 # ============================================================
@@ -3302,7 +3460,8 @@ def validate_indonesian_translation(
 
 
 async def build_consistent_analysis(
-    master_result
+    master_result,
+    actor_source=None
 ):
 
     if not isinstance(master_result, dict):
@@ -3323,6 +3482,20 @@ async def build_consistent_analysis(
     master_en = normalize_language_block(
         master_en
     )
+
+    # Run a dedicated factual actor extraction pass. This prevents the
+    # broader media-analysis model from collapsing named attendees into
+    # generic bullets such as "attended the opening ceremony".
+    if actor_source:
+        extracted_actors = await extract_highlighted_actors(
+            actor_source
+        )
+
+        if extracted_actors:
+            master_en.setdefault(
+                "media_analysis",
+                {}
+            )["highlighted_actors"] = extracted_actors
 
     id_block = await translate_master_to_indonesian(
         master_en
@@ -3440,7 +3613,8 @@ ANALYSIS NOTES:
     analysis = await build_consistent_analysis(
         parse_ai_json(
             final_result
-        )
+        ),
+        actor_source=combined_notes
     )
 
     return (
@@ -3496,7 +3670,8 @@ TRANSCRIPT:
         analysis = await build_consistent_analysis(
             parse_ai_json(
                 result
-            )
+            ),
+            actor_source=transcript_text
         )
 
         return (
@@ -3942,7 +4117,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "8.0.0"
+            "9.3.0"
     }
 
 
@@ -3958,7 +4133,7 @@ async def health():
             "ok",
 
         "version":
-            "8.0.0"
+            "9.3.0"
     }
 
 
@@ -4227,3 +4402,10 @@ async def analyze(
             "server_error",
             500
         )
+
+
+# ============================================================
+# CLOUDFLARE ASGI
+# ============================================================
+
+Default = asgi.entrypoint(app)
