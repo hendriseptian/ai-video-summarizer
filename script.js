@@ -1,8 +1,3 @@
-// ============================================================
-// AI VIDEO SUMMARIZER
-// PROFESSIONAL REPORT + PDF EXPORT
-// ============================================================
-
 const API_URL =
     "https://ai-video-summarizer.hendriseptian25.workers.dev/analyze";
 
@@ -11,46 +6,55 @@ let currentAIData = null;
 let currentVideoData = null;
 let currentTranscriptData = null;
 
-
-// ============================================================
-// INITIALIZATION
-// ============================================================
-
-document.addEventListener("DOMContentLoaded", function () {
-    const analyzeButton = document.getElementById("analyzeButton");
-
-    if (analyzeButton) {
-        analyzeButton.addEventListener("click", analyzeVideo);
-    }
-
-    injectProfessionalUI();
+document.addEventListener("DOMContentLoaded", () => {
+    initializeApplication();
 });
 
-
-// ============================================================
-// MAIN ANALYZE FUNCTION
-// ============================================================
-
-async function analyzeVideo() {
-    const videoUrlElement = document.getElementById("videoUrl");
+function initializeApplication() {
     const analyzeButton = document.getElementById("analyzeButton");
-    const statusElement = document.getElementById("status");
+    const videoUrlInput = document.getElementById("videoUrl");
 
-    if (!videoUrlElement) {
+    if (!analyzeButton || !videoUrlInput) {
+        console.error("Required HTML elements were not found.");
         return;
     }
 
-    const videoUrl = videoUrlElement.value.trim();
+    analyzeButton.addEventListener("click", analyzeVideo);
+
+    videoUrlInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            analyzeVideo();
+        }
+    });
+
+    createLanguageSelector();
+    createPdfButton();
+}
+
+/* ============================================================
+   MAIN ANALYSIS
+   ============================================================ */
+
+async function analyzeVideo() {
+    const videoUrlInput = document.getElementById("videoUrl");
+    const analyzeButton = document.getElementById("analyzeButton");
+    const statusElement = document.getElementById("status");
+
+    if (!videoUrlInput || !analyzeButton || !statusElement) {
+        return;
+    }
+
+    const videoUrl = videoUrlInput.value.trim();
 
     if (!videoUrl) {
         showStatus(
-            "Please enter a YouTube video URL.",
+            "YouTube URL is required.",
             "error"
         );
         return;
     }
 
-    if (!isValidYouTubeUrl(videoUrl)) {
+    if (!isYouTubeUrl(videoUrl)) {
         showStatus(
             "Please enter a valid YouTube URL.",
             "error"
@@ -58,17 +62,14 @@ async function analyzeVideo() {
         return;
     }
 
-    if (analyzeButton) {
-        analyzeButton.disabled = true;
-        analyzeButton.innerText = "ANALYZING...";
-    }
+    setLoadingState(true);
+
+    clearPreviousResults();
 
     showStatus(
-        "Analyzing video transcript. Please wait...",
+        "Analyzing video. Please wait...",
         "loading"
     );
-
-    clearResults();
 
     try {
         const response = await fetch(API_URL, {
@@ -81,10 +82,12 @@ async function analyzeVideo() {
             })
         });
 
-        let data = null;
+        const rawText = await response.text();
+
+        let data;
 
         try {
-            data = await response.json();
+            data = JSON.parse(rawText);
         } catch (jsonError) {
             throw new Error(
                 "Server returned an invalid response."
@@ -92,37 +95,36 @@ async function analyzeVideo() {
         }
 
         if (!response.ok) {
-            const message =
-                data?.message ||
+            const errorMessage =
+                data?.detail ||
                 data?.error ||
+                data?.message ||
                 `Server error: ${response.status}`;
 
-            throw new Error(message);
+            throw new Error(errorMessage);
         }
 
         if (!data) {
-            throw new Error("No data returned by server.");
-        }
-
-        if (data.status === "error") {
             throw new Error(
-                data.message ||
-                data.error ||
-                "Analysis failed."
+                "Empty response from analysis server."
             );
         }
 
         currentVideoData = data;
-        currentAIData = data.ai || data.analysis || null;
+        currentAIData = extractAIData(data);
         currentTranscriptData = getTranscriptData(data);
 
         if (!currentAIData) {
             throw new Error(
-                "AI analysis data was not found in the server response."
+                "AI analysis result was not found in server response."
             );
         }
 
-        renderAll();
+        renderVideoInformation(data);
+        renderAnalysis(currentLanguage);
+        renderTranscript(currentTranscriptData);
+
+        updateLanguageSelector();
 
         showStatus(
             "Analysis completed successfully.",
@@ -130,30 +132,29 @@ async function analyzeVideo() {
         );
 
     } catch (error) {
-        console.error("Analyze error:", error);
+        console.error("Analysis error:", error);
 
         showStatus(
             error.message ||
-            "An error occurred while analyzing the video.",
+            "Failed to analyze video.",
             "error"
         );
 
-        renderError(error.message);
+        renderErrorResult(
+            error.message ||
+            "An unexpected error occurred."
+        );
 
     } finally {
-        if (analyzeButton) {
-            analyzeButton.disabled = false;
-            analyzeButton.innerText = "ANALYZE";
-        }
+        setLoadingState(false);
     }
 }
 
+/* ============================================================
+   VALIDATE YOUTUBE URL
+   ============================================================ */
 
-// ============================================================
-// VALIDATE YOUTUBE URL
-// ============================================================
-
-function isValidYouTubeUrl(url) {
+function isYouTubeUrl(url) {
     try {
         const parsed = new URL(url);
 
@@ -161,127 +162,156 @@ function isValidYouTubeUrl(url) {
             parsed.hostname.toLowerCase();
 
         return (
-            hostname.includes("youtube.com") ||
-            hostname.includes("youtu.be")
+            hostname === "youtube.com" ||
+            hostname === "www.youtube.com" ||
+            hostname === "m.youtube.com" ||
+            hostname === "youtu.be" ||
+            hostname === "www.youtu.be"
         );
-
     } catch (error) {
         return false;
     }
 }
 
+/* ============================================================
+   EXTRACT AI DATA
+   ============================================================ */
 
-// ============================================================
-// TRANSCRIPT DATA NORMALIZATION
-// ============================================================
-
-function getTranscriptData(data) {
-
-    // Current backend structure
-    if (
-        data &&
-        data.transcript &&
-        typeof data.transcript === "object" &&
-        !Array.isArray(data.transcript)
-    ) {
-        return {
-            title:
-                data.transcript.title ||
-                data.title ||
-                "Untitled Video",
-
-            language:
-                data.transcript.language ||
-                data.language ||
-                "unknown",
-
-            transcript:
-                Array.isArray(data.transcript.transcript)
-                    ? data.transcript.transcript
-                    : []
-        };
+function extractAIData(data) {
+    if (!data || typeof data !== "object") {
+        return null;
     }
 
-    // Fallback structure
     if (
-        data &&
-        Array.isArray(data.transcript)
+        data.en &&
+        typeof data.en === "object"
     ) {
-        return {
-            title:
-                data.title ||
-                "Untitled Video",
+        return data;
+    }
 
-            language:
-                data.language ||
-                "unknown",
+    if (
+        data.analysis &&
+        typeof data.analysis === "object"
+    ) {
+        if (
+            data.analysis.en ||
+            data.analysis.id
+        ) {
+            return data.analysis;
+        }
+    }
 
-            transcript:
-                data.transcript
-        };
+    if (
+        data.result &&
+        typeof data.result === "object"
+    ) {
+        if (
+            data.result.en ||
+            data.result.id
+        ) {
+            return data.result;
+        }
+    }
+
+    return null;
+}
+
+/* ============================================================
+   TRANSCRIPT DATA
+   ============================================================ */
+
+function getTranscriptData(data) {
+    if (!data) {
+        return null;
+    }
+
+    let transcriptObject = null;
+
+    if (
+        data.transcript &&
+        typeof data.transcript === "object"
+    ) {
+        transcriptObject = data.transcript;
+    }
+
+    if (
+        data.result &&
+        data.result.transcript &&
+        typeof data.result.transcript === "object"
+    ) {
+        transcriptObject =
+            data.result.transcript;
+    }
+
+    if (!transcriptObject) {
+        return null;
+    }
+
+    let transcript =
+        transcriptObject.transcript;
+
+    if (!Array.isArray(transcript)) {
+        if (typeof transcript === "string") {
+            transcript = [
+                {
+                    text: transcript,
+                    start: 0,
+                    duration: 0
+                }
+            ];
+        } else {
+            transcript = [];
+        }
     }
 
     return {
         title:
-            data?.title ||
-            "Untitled Video",
+            transcriptObject.title ||
+            data.title ||
+            "Unknown Video",
 
         language:
-            data?.language ||
+            transcriptObject.language ||
+            data.language ||
             "unknown",
 
-        transcript: []
+        transcript: transcript
     };
 }
 
+/* ============================================================
+   VIDEO INFORMATION
+   ============================================================ */
 
-// ============================================================
-// RENDER ALL
-// ============================================================
-
-function renderAll() {
-
-    renderVideoInformation();
-
-    renderAnalysis();
-
-    renderTranscript();
-
-    addExportButton();
-}
-
-
-// ============================================================
-// VIDEO INFORMATION
-// ============================================================
-
-function renderVideoInformation() {
-
-    const element =
+function renderVideoInformation(data) {
+    const videoInfo =
         document.getElementById("videoInfo");
 
-    if (!element) {
+    if (!videoInfo) {
         return;
     }
 
     const transcriptData =
-        currentTranscriptData || {};
+        getTranscriptData(data);
 
     const title =
-        transcriptData.title ||
-        currentVideoData?.title ||
-        "Untitled Video";
+        transcriptData?.title ||
+        data.title ||
+        "Unknown Video";
 
     const language =
-        transcriptData.language ||
-        currentVideoData?.language ||
+        transcriptData?.language ||
+        data.language ||
         "Unknown";
 
-    const segments =
-        transcriptData.transcript?.length || 0;
-
     const processing =
-        currentVideoData?.processing || {};
+        data.processing ||
+        {};
+
+    const totalSegments =
+        processing.total_segments ??
+        transcriptData?.transcript?.length ??
+        0;
 
     const totalChunks =
         processing.total_chunks ??
@@ -292,665 +322,607 @@ function renderVideoInformation() {
         "-";
 
     const transcriptHash =
-        processing.transcript_hash ??
+        processing.transcript_hash ||
         "-";
 
-    element.innerHTML = `
+    videoInfo.innerHTML = `
         <div class="video-info-grid">
 
-            ${infoItem(
-                "TITLE",
-                escapeHtml(title)
-            )}
+            <div class="info-item">
+                <span class="info-label">
+                    TITLE
+                </span>
+                <span class="info-value">
+                    ${escapeHtml(title)}
+                </span>
+            </div>
 
-            ${infoItem(
-                "LANGUAGE",
-                escapeHtml(language.toUpperCase())
-            )}
+            <div class="info-item">
+                <span class="info-label">
+                    LANGUAGE
+                </span>
+                <span class="info-value">
+                    ${escapeHtml(
+                        String(language).toUpperCase()
+                    )}
+                </span>
+            </div>
 
-            ${infoItem(
-                "TRANSCRIPT SEGMENTS",
-                formatNumber(segments)
-            )}
+            <div class="info-item">
+                <span class="info-label">
+                    TRANSCRIPT SEGMENTS
+                </span>
+                <span class="info-value">
+                    ${escapeHtml(
+                        String(totalSegments)
+                    )}
+                </span>
+            </div>
 
-            ${infoItem(
-                "ANALYSIS MODE",
-                escapeHtml(
-                    processing.mode ||
-                    "AI Analysis"
-                )
-            )}
+            <div class="info-item">
+                <span class="info-label">
+                    ANALYSIS CHUNKS
+                </span>
+                <span class="info-value">
+                    ${escapeHtml(
+                        String(totalChunks)
+                    )}
+                </span>
+            </div>
 
-            ${infoItem(
-                "PROCESSING CHUNKS",
-                formatNumber(totalChunks)
-            )}
+            <div class="info-item">
+                <span class="info-label">
+                    TRANSCRIPT CHARACTERS
+                </span>
+                <span class="info-value">
+                    ${escapeHtml(
+                        String(transcriptCharacters)
+                    )}
+                </span>
+            </div>
 
-            ${infoItem(
-                "TRANSCRIPT CHARACTERS",
-                formatNumber(transcriptCharacters)
-            )}
+            <div class="info-item">
+                <span class="info-label">
+                    TRANSCRIPT HASH
+                </span>
+                <span class="info-value info-hash">
+                    ${escapeHtml(
+                        String(transcriptHash)
+                    )}
+                </span>
+            </div>
 
         </div>
-
-        ${
-            transcriptHash
-                ? `
-                    <div class="hash-container">
-                        <span>TRANSCRIPT HASH:</span>
-                        <code>${escapeHtml(
-                            transcriptHash
-                        )}</code>
-                    </div>
-                `
-                : ""
-        }
     `;
 }
 
+/* ============================================================
+   LANGUAGE SELECTOR
+   ============================================================ */
 
-// ============================================================
-// ANALYSIS RENDER
-// ============================================================
+function createLanguageSelector() {
+    const resultCard =
+        document.querySelector(".result-card");
 
-function renderAnalysis() {
+    if (!resultCard) {
+        return;
+    }
 
-    const analysisContainer =
+    if (
         document.getElementById(
-            "professionalAnalysis"
-        );
-
-    if (!analysisContainer) {
+            "languageSelectorContainer"
+        )
+    ) {
         return;
     }
 
-    const languageData =
-        getLanguageData();
+    const container =
+        document.createElement("div");
 
-    if (!languageData) {
-        analysisContainer.innerHTML = `
-            <div class="analysis-empty">
-                No analysis data available.
-            </div>
-        `;
+    container.id =
+        "languageSelectorContainer";
 
-        return;
-    }
-
-    analysisContainer.innerHTML = `
-
-        ${renderLanguageSelector()}
-
-        <section class="report-section">
-
-            <div class="section-number">
-                01
-            </div>
-
-            <div class="section-content">
-
-                <h2>
-                    EXECUTIVE SUMMARY
-                </h2>
-
-                <div class="summary-box">
-                    ${formatProfessionalText(
-                        languageData.summary
-                    )}
-                </div>
-
-            </div>
-
-        </section>
-
-
-        <section class="report-section">
-
-            <div class="section-number">
-                02
-            </div>
-
-            <div class="section-content">
-
-                <h2>
-                    KEY POINTS
-                </h2>
-
-                ${renderList(
-                    languageData.key_points
-                )}
-
-            </div>
-
-        </section>
-
-
-        <section class="report-section">
-
-            <div class="section-number">
-                03
-            </div>
-
-            <div class="section-content">
-
-                <h2>
-                    CRITICAL ANALYSIS
-                </h2>
-
-                ${renderAnalysisList(
-                    languageData.critical_analysis
-                )}
-
-            </div>
-
-        </section>
-
-
-        <section class="report-section">
-
-            <div class="section-number">
-                04
-            </div>
-
-            <div class="section-content">
-
-                <h2>
-                    IMPLICATIONS
-                </h2>
-
-                ${renderList(
-                    languageData.implications
-                )}
-
-            </div>
-
-        </section>
-
-
-        <section class="report-section">
-
-            <div class="section-number">
-                05
-            </div>
-
-            <div class="section-content">
-
-                <h2>
-                    KEY TAKEAWAYS
-                </h2>
-
-                ${renderList(
-                    languageData.takeaways
-                )}
-
-            </div>
-
-        </section>
-
-    `;
-}
-
-
-// ============================================================
-// LANGUAGE SELECTOR
-// ============================================================
-
-function renderLanguageSelector() {
-
-    return `
-        <div class="language-selector-container">
+    container.innerHTML = `
+        <div class="language-selector-wrapper">
 
             <label for="languageSelector">
                 REPORT LANGUAGE
             </label>
 
-            <select
-                id="languageSelector"
-                onchange="changeLanguage(this.value)"
-            >
-
-                <option
-                    value="en"
-                    ${currentLanguage === "en" ? "selected" : ""}
-                >
-                    ENGLISH
+            <select id="languageSelector">
+                <option value="en">
+                    English
                 </option>
 
-                <option
-                    value="id"
-                    ${currentLanguage === "id" ? "selected" : ""}
-                >
-                    INDONESIAN
+                <option value="id">
+                    Bahasa Indonesia
                 </option>
-
             </select>
 
         </div>
     `;
+
+    resultCard.appendChild(container);
+
+    const selector =
+        document.getElementById(
+            "languageSelector"
+        );
+
+    if (selector) {
+        selector.addEventListener(
+            "change",
+            handleLanguageChange
+        );
+    }
 }
 
-
-// ============================================================
-// CHANGE LANGUAGE
-// ============================================================
-
-function changeLanguage(language) {
+function handleLanguageChange(event) {
+    const selectedLanguage =
+        event.target.value;
 
     if (
-        language !== "en" &&
-        language !== "id"
+        selectedLanguage !== "en" &&
+        selectedLanguage !== "id"
     ) {
         return;
     }
 
-    currentLanguage = language;
+    currentLanguage =
+        selectedLanguage;
 
-    renderAnalysis();
-
-    addExportButton();
+    if (currentAIData) {
+        renderAnalysis(currentLanguage);
+    }
 }
 
+function updateLanguageSelector() {
+    const selector =
+        document.getElementById(
+            "languageSelector"
+        );
 
-// ============================================================
-// GET CURRENT LANGUAGE DATA
-// ============================================================
+    if (!selector) {
+        return;
+    }
 
-function getLanguageData() {
+    const hasEnglish =
+        currentAIData &&
+        currentAIData.en;
 
-    if (!currentAIData) {
-        return null;
+    const hasIndonesian =
+        currentAIData &&
+        currentAIData.id;
+
+    selector.disabled =
+        !hasEnglish &&
+        !hasIndonesian;
+
+    const englishOption =
+        selector.querySelector(
+            'option[value="en"]'
+        );
+
+    const indonesianOption =
+        selector.querySelector(
+            'option[value="id"]'
+        );
+
+    if (englishOption) {
+        englishOption.disabled =
+            !hasEnglish;
+    }
+
+    if (indonesianOption) {
+        indonesianOption.disabled =
+            !hasIndonesian;
     }
 
     if (
-        currentAIData[currentLanguage]
+        currentLanguage === "en" &&
+        !hasEnglish &&
+        hasIndonesian
     ) {
-        return currentAIData[currentLanguage];
+        currentLanguage = "id";
+        selector.value = "id";
     }
 
-    // fallback
-    if (currentAIData.en) {
-        return currentAIData.en;
+    if (
+        currentLanguage === "id" &&
+        !hasIndonesian &&
+        hasEnglish
+    ) {
+        currentLanguage = "en";
+        selector.value = "en";
     }
-
-    if (currentAIData.id) {
-        return currentAIData.id;
-    }
-
-    return currentAIData;
 }
 
+/* ============================================================
+   ANALYSIS RENDER
+   ============================================================ */
 
-// ============================================================
-// RENDER LIST
-// ============================================================
+function renderAnalysis(language) {
+    const report =
+        currentAIData?.[language];
 
-function renderList(items) {
+    if (!report) {
+        renderMissingAnalysis();
+        return;
+    }
 
-    if (!Array.isArray(items)) {
+    const transcriptCard =
+        document.querySelector(
+            ".transcript-card"
+        );
 
-        if (
-            typeof items === "string" &&
-            items.trim()
-        ) {
-            return `
-                <div class="analysis-text">
-                    ${formatProfessionalText(
-                        items
-                    )}
-                </div>
-            `;
-        }
+    if (!transcriptCard) {
+        return;
+    }
 
-        return `
-            <div class="analysis-empty">
-                No information available.
+    let analysisContainer =
+        document.getElementById(
+            "professionalAnalysis"
+        );
+
+    if (!analysisContainer) {
+        analysisContainer =
+            document.createElement("div");
+
+        analysisContainer.id =
+            "professionalAnalysis";
+
+        analysisContainer.className =
+            "professional-analysis";
+
+        transcriptCard.parentNode.insertBefore(
+            analysisContainer,
+            transcriptCard
+        );
+    }
+
+    const summary =
+        normalizeText(
+            report.summary
+        );
+
+    const keyPoints =
+        normalizeArray(
+            report.key_points
+        );
+
+    const criticalAnalysis =
+        normalizeArray(
+            report.critical_analysis
+        );
+
+    const implications =
+        normalizeArray(
+            report.implications
+        );
+
+    const takeaways =
+        normalizeArray(
+            report.takeaways
+        );
+
+    analysisContainer.innerHTML = `
+        <div class="analysis-header">
+
+            <div>
+                <h2>
+                    PROFESSIONAL CONTENT ANALYSIS
+                </h2>
+
+                <p class="analysis-language">
+                    ${language === "id"
+                        ? "Bahasa Indonesia"
+                        : "English"}
+                </p>
             </div>
-        `;
-    }
 
-    if (items.length === 0) {
-        return `
-            <div class="analysis-empty">
-                No information available.
-            </div>
-        `;
-    }
-
-    return `
-        <ol class="professional-list">
-
-            ${items.map(
-                (item, index) => `
-                    <li>
-                        <div class="list-number">
-                            ${String(index + 1).padStart(
-                                2,
-                                "0"
-                            )}
-                        </div>
-
-                        <div class="list-content">
-                            ${formatProfessionalText(
-                                normalizeAIValue(item)
-                            )}
-                        </div>
-                    </li>
-                `
-            ).join("")}
-
-        </ol>
-    `;
-}
-
-
-// ============================================================
-// RENDER CRITICAL ANALYSIS
-// ============================================================
-
-function renderAnalysisList(items) {
-
-    if (!Array.isArray(items)) {
-        return renderList(items);
-    }
-
-    if (items.length === 0) {
-        return `
-            <div class="analysis-empty">
-                No critical analysis available.
-            </div>
-        `;
-    }
-
-    return `
-        <div class="critical-analysis-list">
-
-            ${items.map(
-                (item, index) => `
-
-                    <article class="critical-item">
-
-                        <div class="critical-number">
-                            ${String(index + 1).padStart(
-                                2,
-                                "0"
-                            )}
-                        </div>
-
-                        <div class="critical-content">
-
-                            ${formatProfessionalText(
-                                normalizeAIValue(item)
-                            )}
-
-                        </div>
-
-                    </article>
-
-                `
-            ).join("")}
+            <button
+                id="downloadPdfButton"
+                class="pdf-button"
+                type="button"
+            >
+                DOWNLOAD PDF
+            </button>
 
         </div>
+
+        <section class="analysis-section">
+
+            <h3>
+                EXECUTIVE SUMMARY
+            </h3>
+
+            <div class="summary-content">
+                ${formatParagraphs(summary)}
+            </div>
+
+        </section>
+
+        <section class="analysis-section">
+
+            <h3>
+                KEY POINTS
+            </h3>
+
+            <div class="numbered-list">
+                ${renderNumberedList(
+                    keyPoints
+                )}
+            </div>
+
+        </section>
+
+        <section class="analysis-section">
+
+            <h3>
+                CRITICAL ANALYSIS
+            </h3>
+
+            <div class="numbered-list">
+                ${renderNumberedList(
+                    criticalAnalysis
+                )}
+            </div>
+
+        </section>
+
+        <section class="analysis-section">
+
+            <h3>
+                IMPLICATIONS
+            </h3>
+
+            <div class="numbered-list">
+                ${renderNumberedList(
+                    implications
+                )}
+            </div>
+
+        </section>
+
+        <section class="analysis-section">
+
+            <h3>
+                KEY TAKEAWAYS
+            </h3>
+
+            <div class="takeaway-list">
+                ${renderBulletList(
+                    takeaways
+                )}
+            </div>
+
+        </section>
     `;
-}
 
-
-// ============================================================
-// NORMALIZE AI VALUE
-// ============================================================
-
-function normalizeAIValue(value) {
-
-    if (value === null || value === undefined) {
-        return "";
-    }
-
-    if (typeof value === "string") {
-        return value;
-    }
-
-    if (typeof value === "object") {
-
-        // Handle old accidental object format
-        if (
-            value.issue ||
-            value.reason ||
-            value.evidence ||
-            value.observation
-        ) {
-
-            const parts = [];
-
-            if (value.issue) {
-                parts.push(
-                    String(value.issue)
-                );
-            }
-
-            if (value.reason) {
-                parts.push(
-                    String(value.reason)
-                );
-            }
-
-            if (value.evidence) {
-                parts.push(
-                    String(value.evidence)
-                );
-            }
-
-            if (value.observation) {
-                parts.push(
-                    String(value.observation)
-                );
-            }
-
-            return parts.join(" ");
-        }
-
-        return Object.values(value)
-            .map(item => String(item))
-            .join(" ");
-    }
-
-    return String(value);
-}
-
-
-// ============================================================
-// FORMAT PROFESSIONAL TEXT
-// ============================================================
-
-function formatProfessionalText(text) {
-
-    if (!text) {
-        return "";
-    }
-
-    let output =
-        escapeHtml(
-            String(text)
+    const pdfButton =
+        document.getElementById(
+            "downloadPdfButton"
         );
 
-    // Bold markdown
-    output = output.replace(
-        /\*\*(.*?)\*\*/g,
-        "<strong>$1</strong>"
-    );
-
-    // Convert line breaks
-    output =
-        output.replace(
-            /\n/g,
-            "<br>"
+    if (pdfButton) {
+        pdfButton.addEventListener(
+            "click",
+            generatePdf
         );
-
-    return output;
+    }
 }
 
+/* ============================================================
+   NUMBERED LIST
+   ============================================================ */
 
-// ============================================================
-// TRANSCRIPT RENDER
-// ============================================================
+function renderNumberedList(items) {
+    if (!items || items.length === 0) {
+        return `
+            <p class="empty-analysis">
+                No information available.
+            </p>
+        `;
+    }
 
-function renderTranscript() {
+    return items
+        .map((item, index) => {
+            const text =
+                normalizeText(item);
 
-    const element =
+            return `
+                <div class="analysis-item">
+
+                    <div class="analysis-number">
+                        ${String(
+                            index + 1
+                        ).padStart(2, "0")}
+                    </div>
+
+                    <div class="analysis-text">
+                        ${formatParagraphs(
+                            text
+                        )}
+                    </div>
+
+                </div>
+            `;
+        })
+        .join("");
+}
+
+/* ============================================================
+   BULLET LIST
+   ============================================================ */
+
+function renderBulletList(items) {
+    if (!items || items.length === 0) {
+        return `
+            <p class="empty-analysis">
+                No information available.
+            </p>
+        `;
+    }
+
+    return items
+        .map((item) => {
+            return `
+                <div class="takeaway-item">
+                    <span class="takeaway-marker">
+                        •
+                    </span>
+
+                    <span>
+                        ${formatParagraphs(
+                            normalizeText(item)
+                        )}
+                    </span>
+                </div>
+            `;
+        })
+        .join("");
+}
+
+/* ============================================================
+   TRANSCRIPT
+   ============================================================ */
+
+function renderTranscript(transcriptData) {
+    const transcriptElement =
         document.getElementById(
             "transcript"
         );
 
-    if (!element) {
+    if (!transcriptElement) {
         return;
     }
 
-    const transcript =
-        currentTranscriptData?.transcript || [];
-
     if (
-        !Array.isArray(transcript) ||
-        transcript.length === 0
+        !transcriptData ||
+        !Array.isArray(
+            transcriptData.transcript
+        ) ||
+        transcriptData.transcript.length === 0
     ) {
-        element.innerHTML = `
-            <div class="transcript-empty">
+        transcriptElement.innerHTML = `
+            <p>
                 Transcript is not available.
-            </div>
+            </p>
         `;
 
         return;
     }
 
-    element.innerHTML = `
-        <div class="transcript-wrapper">
+    const rows =
+        transcriptData.transcript
+            .map((segment, index) => {
+                const start =
+                    Number(segment.start) || 0;
 
-            <div class="transcript-header">
+                const duration =
+                    Number(segment.duration) || 0;
 
-                <span>
-                    SOURCE MATERIAL
-                </span>
+                const text =
+                    normalizeText(
+                        segment.text
+                    );
 
-                <span>
-                    ${formatNumber(
-                        transcript.length
-                    )} SEGMENTS
-                </span>
+                return `
+                    <div
+                        class="transcript-row"
+                        data-index="${index}"
+                    >
 
-            </div>
+                        <div class="transcript-time">
+                            ${formatTimestamp(
+                                start
+                            )}
+                        </div>
 
-            <div class="transcript-scroll">
+                        <div class="transcript-text">
+                            ${escapeHtml(
+                                text
+                            )}
+                        </div>
 
-                ${transcript.map(
-                    (segment, index) => {
+                    </div>
+                `;
+            })
+            .join("");
 
-                        const start =
-                            Number(
-                                segment.start || 0
-                            );
+    transcriptElement.innerHTML = `
+        <div class="transcript-toolbar">
+            <span>
+                ${transcriptData.transcript.length}
+                segments
+            </span>
+        </div>
 
-                        const text =
-                            segment.text ||
-                            "";
-
-                        return `
-                            <div class="transcript-row">
-
-                                <div class="transcript-index">
-                                    ${String(
-                                        index + 1
-                                    ).padStart(
-                                        3,
-                                        "0"
-                                    )}
-                                </div>
-
-                                <div class="transcript-time">
-                                    ${formatTimestamp(
-                                        start
-                                    )}
-                                </div>
-
-                                <div class="transcript-text">
-                                    ${escapeHtml(
-                                        text
-                                    )}
-                                </div>
-
-                            </div>
-                        `;
-                    }
-                ).join("")}
-
-            </div>
-
+        <div class="transcript-scroll">
+            ${rows}
         </div>
     `;
 }
 
+/* ============================================================
+   TIMESTAMP
+   ============================================================ */
 
-// ============================================================
-// ADD EXPORT PDF BUTTON
-// ============================================================
-
-function addExportButton() {
-
-    const analysisCard =
-        document.querySelector(
-            ".result-card"
+function formatTimestamp(seconds) {
+    seconds =
+        Math.max(
+            0,
+            Math.floor(
+                Number(seconds) || 0
+            )
         );
 
-    if (!analysisCard) {
-        return;
+    const hours =
+        Math.floor(seconds / 3600);
+
+    const minutes =
+        Math.floor(
+            (seconds % 3600) / 60
+        );
+
+    const secs =
+        seconds % 60;
+
+    if (hours > 0) {
+        return [
+            String(hours).padStart(2, "0"),
+            String(minutes).padStart(2, "0"),
+            String(secs).padStart(2, "0")
+        ].join(":");
     }
 
-    let exportContainer =
-        document.getElementById(
-            "exportContainer"
-        );
-
-    if (!exportContainer) {
-
-        exportContainer =
-            document.createElement("div");
-
-        exportContainer.id =
-            "exportContainer";
-
-        exportContainer.className =
-            "export-container";
-
-        analysisCard.appendChild(
-            exportContainer
-        );
-    }
-
-    exportContainer.innerHTML = `
-        <button
-            id="exportPdfButton"
-            class="export-pdf-button"
-            type="button"
-            onclick="exportPDF()"
-        >
-            EXPORT PDF
-        </button>
-
-        <span class="export-language">
-            ${currentLanguage.toUpperCase()}
-        </span>
-    `;
+    return [
+        String(minutes).padStart(2, "0"),
+        String(secs).padStart(2, "0")
+    ].join(":");
 }
 
+/* ============================================================
+   PDF BUTTON
+   ============================================================ */
 
-// ============================================================
-// LOAD PDF LIBRARIES
-// ============================================================
+function createPdfButton() {
+    /*
+     * PDF button is created inside the analysis section
+     * after analysis is completed.
+     */
+}
 
-async function loadPDFLibraries() {
+/* ============================================================
+   LOAD PDF LIBRARY
+   ============================================================ */
 
+async function loadPdfLibraries() {
     if (
         window.jspdf &&
-        window.jspdf.jsPDF &&
-        window.autoTable
+        window.jspdf.jsPDF
     ) {
-        return;
+        return true;
     }
 
     await loadScript(
@@ -958,57 +930,32 @@ async function loadPDFLibraries() {
     );
 
     await loadScript(
-        "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"
+        "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"
     );
 
-    if (
-        !window.jspdf ||
-        !window.jspdf.jsPDF
-    ) {
-        throw new Error(
-            "jsPDF library could not be loaded."
-        );
-    }
+    return (
+        window.jspdf &&
+        window.jspdf.jsPDF
+    );
 }
 
-
-// ============================================================
-// DYNAMIC SCRIPT LOADER
-// ============================================================
-
 function loadScript(src) {
-
     return new Promise(
         (resolve, reject) => {
-
             const existing =
                 document.querySelector(
                     `script[src="${src}"]`
                 );
 
             if (existing) {
-
-                if (
-                    existing.dataset.loaded ===
-                    "true"
-                ) {
-                    resolve();
-                    return;
-                }
-
                 existing.addEventListener(
                     "load",
-                    () => resolve()
+                    resolve
                 );
 
                 existing.addEventListener(
                     "error",
-                    () =>
-                        reject(
-                            new Error(
-                                "Failed to load PDF library."
-                            )
-                        )
+                    reject
                 );
 
                 return;
@@ -1020,25 +967,18 @@ function loadScript(src) {
                 );
 
             script.src = src;
-
             script.async = true;
 
-            script.onload = function () {
+            script.onload =
+                () => resolve();
 
-                script.dataset.loaded =
-                    "true";
-
-                resolve();
-            };
-
-            script.onerror = function () {
-
-                reject(
-                    new Error(
-                        "Failed to load external PDF library."
-                    )
-                );
-            };
+            script.onerror =
+                () =>
+                    reject(
+                        new Error(
+                            "Failed to load PDF library."
+                        )
+                    );
 
             document.head.appendChild(
                 script
@@ -1047,44 +987,43 @@ function loadScript(src) {
     );
 }
 
+/* ============================================================
+   GENERATE PDF
+   ============================================================ */
 
-// ============================================================
-// EXPORT PDF
-// ============================================================
-
-async function exportPDF() {
-
-    if (!currentVideoData) {
-
+async function generatePdf() {
+    if (
+        !currentAIData ||
+        !currentVideoData
+    ) {
         showStatus(
-            "Please analyze a video first.",
+            "No analysis available for PDF export.",
             "error"
         );
 
         return;
     }
 
-    const button =
+    const pdfButton =
         document.getElementById(
-            "exportPdfButton"
+            "downloadPdfButton"
         );
 
-    if (button) {
-
-        button.disabled = true;
-
-        button.innerText =
+    if (pdfButton) {
+        pdfButton.disabled = true;
+        pdfButton.textContent =
             "GENERATING PDF...";
     }
 
-    showStatus(
-        "Generating professional PDF report...",
-        "loading"
-    );
-
     try {
+        const loaded =
+            await loadPdfLibraries();
 
-        await loadPDFLibraries();
+        if (!loaded) {
+            throw new Error(
+                "PDF library could not be loaded."
+            );
+        }
 
         const jsPDF =
             window.jspdf.jsPDF;
@@ -1096,844 +1035,489 @@ async function exportPDF() {
                 format: "a4"
             });
 
-        configurePDFDocument(doc);
+        const report =
+            currentAIData[
+                currentLanguage
+            ];
 
-        addPDFCover(doc);
-
-        addPDFExecutiveSummary(doc);
-
-        addPDFKeyPoints(doc);
-
-        addPDFCriticalAnalysis(doc);
-
-        addPDFImplications(doc);
-
-        addPDFTakeaways(doc);
-
-        addPDFTranscript(doc);
-
-        addPDFFooter(doc);
+        const transcriptData =
+            currentTranscriptData;
 
         const title =
-            currentTranscriptData?.title ||
-            "Video";
+            transcriptData?.title ||
+            currentVideoData?.title ||
+            "AI Video Analysis";
+
+        const margin = 18;
+
+        let y = 20;
+
+        /*
+         * COVER / HEADER
+         */
+
+        doc.setFontSize(20);
+        doc.setFont("helvetica", "bold");
+
+        doc.text(
+            "AI VIDEO ANALYSIS REPORT",
+            margin,
+            y
+        );
+
+        y += 12;
+
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "normal");
+
+        const titleLines =
+            doc.splitTextToSize(
+                String(title),
+                174
+            );
+
+        doc.text(
+            titleLines,
+            margin,
+            y
+        );
+
+        y +=
+            titleLines.length * 6 +
+            8;
+
+        drawPdfLine(
+            doc,
+            margin,
+            y,
+            192,
+            y
+        );
+
+        y += 10;
+
+        /*
+         * VIDEO INFORMATION
+         */
+
+        addPdfHeading(
+            doc,
+            "VIDEO INFORMATION",
+            margin,
+            y
+        );
+
+        y += 8;
+
+        const infoRows = [
+            [
+                "Title",
+                String(title)
+            ],
+            [
+                "Language",
+                String(
+                    transcriptData?.language ||
+                    currentVideoData?.language ||
+                    "Unknown"
+                ).toUpperCase()
+            ],
+            [
+                "URL",
+                getVideoUrl()
+            ],
+            [
+                "Analysis Language",
+                currentLanguage === "id"
+                    ? "Bahasa Indonesia"
+                    : "English"
+            ]
+        ];
+
+        doc.autoTable({
+            startY: y,
+            head: [
+                ["Field", "Value"]
+            ],
+            body: infoRows,
+            margin: {
+                left: margin,
+                right: margin
+            },
+            theme: "grid",
+            styles: {
+                fontSize: 9,
+                cellPadding: 3
+            },
+            headStyles: {
+                fontStyle: "bold"
+            }
+        });
+
+        y =
+            doc.lastAutoTable.finalY +
+            12;
+
+        /*
+         * EXECUTIVE SUMMARY
+         */
+
+        y = ensurePdfSpace(
+            doc,
+            y,
+            40
+        );
+
+        addPdfHeading(
+            doc,
+            "EXECUTIVE SUMMARY",
+            margin,
+            y
+        );
+
+        y += 8;
+
+        y =
+            addPdfParagraph(
+                doc,
+                normalizeText(
+                    report?.summary
+                ),
+                margin,
+                y,
+                174
+            );
+
+        y += 6;
+
+        /*
+         * KEY POINTS
+         */
+
+        y = ensurePdfSpace(
+            doc,
+            y,
+            35
+        );
+
+        addPdfHeading(
+            doc,
+            "KEY POINTS",
+            margin,
+            y
+        );
+
+        y += 8;
+
+        y =
+            addPdfNumberedItems(
+                doc,
+                normalizeArray(
+                    report?.key_points
+                ),
+                margin,
+                y
+            );
+
+        /*
+         * CRITICAL ANALYSIS
+         */
+
+        y = ensurePdfSpace(
+            doc,
+            y,
+            35
+        );
+
+        addPdfHeading(
+            doc,
+            "CRITICAL ANALYSIS",
+            margin,
+            y
+        );
+
+        y += 8;
+
+        y =
+            addPdfNumberedItems(
+                doc,
+                normalizeArray(
+                    report?.critical_analysis
+                ),
+                margin,
+                y
+            );
+
+        /*
+         * IMPLICATIONS
+         */
+
+        y = ensurePdfSpace(
+            doc,
+            y,
+            35
+        );
+
+        addPdfHeading(
+            doc,
+            "IMPLICATIONS",
+            margin,
+            y
+        );
+
+        y += 8;
+
+        y =
+            addPdfNumberedItems(
+                doc,
+                normalizeArray(
+                    report?.implications
+                ),
+                margin,
+                y
+            );
+
+        /*
+         * TAKEAWAYS
+         */
+
+        y = ensurePdfSpace(
+            doc,
+            y,
+            35
+        );
+
+        addPdfHeading(
+            doc,
+            "KEY TAKEAWAYS",
+            margin,
+            y
+        );
+
+        y += 8;
+
+        y =
+            addPdfBulletItems(
+                doc,
+                normalizeArray(
+                    report?.takeaways
+                ),
+                margin,
+                y
+            );
+
+        /*
+         * TRANSCRIPT
+         */
+
+        y = ensurePdfSpace(
+            doc,
+            y,
+            45
+        );
+
+        addPdfHeading(
+            doc,
+            "SOURCE MATERIAL / TRANSCRIPT",
+            margin,
+            y
+        );
+
+        y += 8;
+
+        const transcriptRows =
+            Array.isArray(
+                transcriptData?.transcript
+            )
+                ? transcriptData.transcript.map(
+                      (segment) => [
+                          formatTimestamp(
+                              segment.start
+                          ),
+                          normalizeText(
+                              segment.text
+                          )
+                      ]
+                  )
+                : [];
+
+        if (
+            transcriptRows.length > 0
+        ) {
+            doc.autoTable({
+                startY: y,
+                head: [
+                    [
+                        "TIME",
+                        "TRANSCRIPT"
+                    ]
+                ],
+                body: transcriptRows,
+                margin: {
+                    left: margin,
+                    right: margin
+                },
+                theme: "grid",
+                styles: {
+                    fontSize: 7.5,
+                    cellPadding: 2,
+                    overflow: "linebreak",
+                    valign: "top"
+                },
+                columnStyles: {
+                    0: {
+                        cellWidth: 22
+                    },
+                    1: {
+                        cellWidth: 152
+                    }
+                },
+                headStyles: {
+                    fontStyle: "bold"
+                }
+            });
+        } else {
+            addPdfParagraph(
+                doc,
+                "Transcript is not available.",
+                margin,
+                y,
+                174
+            );
+        }
+
+        /*
+         * FOOTER
+         */
+
+        addPdfFooter(
+            doc
+        );
+
+        /*
+         * FILE NAME
+         */
 
         const filename =
-            "AI_Video_Analysis_Report_" +
-            sanitizeFilename(title) +
-            ".pdf";
+            createPdfFilename(
+                title,
+                currentLanguage
+            );
 
         doc.save(filename);
 
         showStatus(
-            "PDF report generated successfully.",
+            "PDF generated successfully.",
             "success"
         );
 
     } catch (error) {
-
         console.error(
-            "PDF export error:",
+            "PDF generation error:",
             error
         );
 
         showStatus(
-            "Failed to generate PDF: " +
-            error.message,
+            error.message ||
+            "Failed to generate PDF.",
             "error"
         );
 
     } finally {
-
-        if (button) {
-
-            button.disabled = false;
-
-            button.innerText =
-                "EXPORT PDF";
+        if (pdfButton) {
+            pdfButton.disabled = false;
+            pdfButton.textContent =
+                "DOWNLOAD PDF";
         }
     }
 }
 
-
-// ============================================================
-// PDF CONFIGURATION
-// ============================================================
-
-function configurePDFDocument(doc) {
-
-    doc.setProperties({
-        title:
-            "AI Video Analysis Report",
-
-        subject:
-            "Professional AI Video Analysis",
-
-        author:
-            "AI Video Summarizer",
-
-        creator:
-            "AI Video Summarizer",
-
-        keywords:
-            "video analysis, AI, transcript, summary"
-    });
-}
-
-
-// ============================================================
-// PDF COVER / VIDEO INFORMATION
-// ============================================================
-
-function addPDFCover(doc) {
-
-    const margin = 18;
-
-    const pageWidth =
-        doc.internal.pageSize.getWidth();
-
-    const title =
-        currentTranscriptData?.title ||
-        "Untitled Video";
-
-    const language =
-        currentLanguage === "id"
-            ? "INDONESIAN"
-            : "ENGLISH";
-
-    // Header
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-    doc.setFontSize(10);
-
-    doc.text(
-        "AI VIDEO SUMMARIZER",
-        margin,
-        18
-    );
-
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-    doc.setFontSize(8);
-
-    doc.text(
-        "PROFESSIONAL CONTENT ANALYSIS REPORT",
-        margin,
-        24
-    );
-
-    // Divider
-    doc.setLineWidth(0.4);
-
-    doc.line(
-        margin,
-        29,
-        pageWidth - margin,
-        29
-    );
-
-    // Main title
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-    doc.setFontSize(20);
-
-    const titleLines =
-        doc.splitTextToSize(
-            title,
-            pageWidth - margin * 2
-        );
-
-    doc.text(
-        titleLines,
-        margin,
-        48
-    );
-
-    let y =
-        48 +
-        titleLines.length * 9;
-
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-    doc.setFontSize(10);
-
-    doc.text(
-        "REPORT LANGUAGE: " +
-        language,
-        margin,
-        y + 5
-    );
-
-    // Information block
-    y += 22;
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-    doc.setFontSize(12);
-
-    doc.text(
-        "VIDEO INFORMATION",
-        margin,
-        y
-    );
-
-    y += 9;
-
-    const processing =
-        currentVideoData?.processing || {};
-
-    const infoRows = [
-        [
-            "Title",
-            title
-        ],
-        [
-            "Transcript Language",
-            String(
-                currentTranscriptData?.language ||
-                "Unknown"
-            ).toUpperCase()
-        ],
-        [
-            "Transcript Segments",
-            String(
-                currentTranscriptData?.transcript?.length ||
-                0
-            )
-        ],
-        [
-            "Analysis Mode",
-            processing.mode ||
-            "AI Analysis"
-        ],
-        [
-            "Processing Chunks",
-            String(
-                processing.total_chunks ??
-                "-"
-            )
-        ],
-        [
-            "Transcript Characters",
-            String(
-                processing.transcript_characters ??
-                "-"
-            )
-        ],
-        [
-            "Report Language",
-            language
-        ]
-    ];
-
-    doc.autoTable({
-        startY: y,
-        head: [
-            [
-                "FIELD",
-                "VALUE"
-            ]
-        ],
-        body: infoRows,
-        margin: {
-            left: margin,
-            right: margin
-        },
-        theme: "grid",
-        styles: {
-            font: "helvetica",
-            fontSize: 8,
-            cellPadding: 3,
-            overflow: "linebreak"
-        },
-        headStyles: {
-            fontStyle: "bold"
-        },
-        columnStyles: {
-            0: {
-                cellWidth: 45
-            },
-            1: {
-                cellWidth:
-                    pageWidth -
-                    margin * 2 -
-                    45
-            }
-        }
-    });
-
-    // Source URL
-    let finalY =
-        doc.lastAutoTable.finalY + 15;
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-    doc.setFontSize(9);
-
-    doc.text(
-        "SOURCE URL",
-        margin,
-        finalY
-    );
-
-    finalY += 5;
-
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-    doc.setFontSize(7);
-
-    const url =
-        document.getElementById(
-            "videoUrl"
-        )?.value ||
-        "";
-
-    const urlLines =
-        doc.splitTextToSize(
-            url,
-            pageWidth - margin * 2
-        );
-
-    doc.text(
-        urlLines,
-        margin,
-        finalY
-    );
-
-    // Report generated label
-    finalY +=
-        urlLines.length * 3.5 +
-        10;
-
-    doc.setFontSize(8);
-
-    doc.text(
-        "Generated by AI Video Summarizer",
-        margin,
-        finalY
-    );
-
-    addPageBreak(doc);
-}
-
-
-// ============================================================
-// PDF EXECUTIVE SUMMARY
-// ============================================================
-
-function addPDFExecutiveSummary(doc) {
-
-    const data =
-        getLanguageData();
-
-    if (!data) {
-        return;
-    }
-
-    addPDFSectionTitle(
-        doc,
-        "01",
-        currentLanguage === "id"
-            ? "RINGKASAN EKSEKUTIF"
-            : "EXECUTIVE SUMMARY"
-    );
-
-    addPDFParagraph(
-        doc,
-        normalizeAIValue(
-            data.summary
-        )
-    );
-}
-
-
-// ============================================================
-// PDF KEY POINTS
-// ============================================================
-
-function addPDFKeyPoints(doc) {
-
-    const data =
-        getLanguageData();
-
-    if (!data) {
-        return;
-    }
-
-    addPDFSectionTitle(
-        doc,
-        "02",
-        currentLanguage === "id"
-            ? "POIN UTAMA"
-            : "KEY POINTS"
-    );
-
-    addPDFNumberedList(
-        doc,
-        data.key_points
-    );
-}
-
-
-// ============================================================
-// PDF CRITICAL ANALYSIS
-// ============================================================
-
-function addPDFCriticalAnalysis(doc) {
-
-    const data =
-        getLanguageData();
-
-    if (!data) {
-        return;
-    }
-
-    addPDFSectionTitle(
-        doc,
-        "03",
-        currentLanguage === "id"
-            ? "ANALISIS KRITIS"
-            : "CRITICAL ANALYSIS"
-    );
-
-    addPDFNumberedList(
-        doc,
-        data.critical_analysis
-    );
-}
-
-
-// ============================================================
-// PDF IMPLICATIONS
-// ============================================================
-
-function addPDFImplications(doc) {
-
-    const data =
-        getLanguageData();
-
-    if (!data) {
-        return;
-    }
-
-    addPDFSectionTitle(
-        doc,
-        "04",
-        currentLanguage === "id"
-            ? "IMPLIKASI"
-            : "IMPLICATIONS"
-    );
-
-    addPDFNumberedList(
-        doc,
-        data.implications
-    );
-}
-
-
-// ============================================================
-// PDF TAKEAWAYS
-// ============================================================
-
-function addPDFTakeaways(doc) {
-
-    const data =
-        getLanguageData();
-
-    if (!data) {
-        return;
-    }
-
-    addPDFSectionTitle(
-        doc,
-        "05",
-        currentLanguage === "id"
-            ? "KESIMPULAN UTAMA"
-            : "KEY TAKEAWAYS"
-    );
-
-    addPDFNumberedList(
-        doc,
-        data.takeaways
-    );
-}
-
-
-// ============================================================
-// PDF TRANSCRIPT
-// ============================================================
-
-function addPDFTranscript(doc) {
-
-    const transcript =
-        currentTranscriptData?.transcript || [];
-
-    if (
-        !Array.isArray(transcript) ||
-        transcript.length === 0
-    ) {
-        return;
-    }
-
-    addPageBreak(doc);
-
-    addPDFSectionTitle(
-        doc,
-        "06",
-        currentLanguage === "id"
-            ? "MATERI SUMBER / TRANSKRIP"
-            : "SOURCE MATERIAL / TRANSCRIPT"
-    );
-
-    const rows =
-        transcript.map(
-            (segment, index) => {
-
-                return [
-                    String(
-                        index + 1
-                    ).padStart(
-                        3,
-                        "0"
-                    ),
-
-                    formatTimestamp(
-                        Number(
-                            segment.start || 0
-                        )
-                    ),
-
-                    segment.text ||
-                    ""
-                ];
-            }
-        );
-
-    doc.autoTable({
-
-        head: [
-            [
-                "NO.",
-                "TIME",
-                "TRANSCRIPT"
-            ]
-        ],
-
-        body: rows,
-
-        margin: {
-            left: 15,
-            right: 15,
-            top: 35,
-            bottom: 20
-        },
-
-        theme: "grid",
-
-        styles: {
-            font:
-                "helvetica",
-
-            fontSize:
-                7,
-
-            cellPadding:
-                2.5,
-
-            overflow:
-                "linebreak",
-
-            valign:
-                "top"
-        },
-
-        headStyles: {
-            fontStyle:
-                "bold"
-        },
-
-        columnStyles: {
-            0: {
-                cellWidth:
-                    12,
-
-                halign:
-                    "center"
-            },
-
-            1: {
-                cellWidth:
-                    20,
-
-                halign:
-                    "center"
-            },
-
-            2: {
-                cellWidth:
-                    "auto"
-            }
-        },
-
-        pageBreak:
-            "auto",
-
-        showHead:
-            "everyPage",
-
-        didDrawPage:
-            function () {
-
-                const pageWidth =
-                    doc.internal.pageSize.getWidth();
-
-                doc.setFont(
-                    "helvetica",
-                    "bold"
-                );
-
-                doc.setFontSize(8);
-
-                doc.text(
-                    currentLanguage === "id"
-                        ? "MATERI SUMBER / TRANSKRIP"
-                        : "SOURCE MATERIAL / TRANSCRIPT",
-                    15,
-                    15
-                );
-
-                doc.setLineWidth(
-                    0.3
-                );
-
-                doc.line(
-                    15,
-                    18,
-                    pageWidth - 15,
-                    18
-                );
-            }
-    });
-}
-
-
-// ============================================================
-// PDF SECTION TITLE
-// ============================================================
-
-function addPDFSectionTitle(
+/* ============================================================
+   PDF HELPERS
+   ============================================================ */
+
+function addPdfHeading(
     doc,
-    number,
-    title
+    text,
+    x,
+    y
 ) {
-
-    ensurePDFSpace(
-        doc,
-        35
-    );
-
-    const margin = 18;
-
-    const pageWidth =
-        doc.internal.pageSize.getWidth();
-
-    let y =
-        getPDFY(doc);
-
     doc.setFont(
         "helvetica",
         "bold"
     );
 
-    doc.setFontSize(9);
+    doc.setFontSize(11);
 
     doc.text(
-        number,
-        margin,
+        String(text),
+        x,
         y
     );
-
-    doc.setFontSize(14);
-
-    doc.text(
-        title,
-        margin + 12,
-        y
-    );
-
-    doc.setLineWidth(
-        0.3
-    );
-
-    doc.line(
-        margin,
-        y + 4,
-        pageWidth - margin,
-        y + 4
-    );
-
-    doc.lastAutoTable = {
-        finalY:
-            y + 12
-    };
 }
 
-
-// ============================================================
-// PDF PARAGRAPH
-// ============================================================
-
-function addPDFParagraph(
+function addPdfParagraph(
     doc,
-    text
+    text,
+    x,
+    y,
+    width
 ) {
-
     if (!text) {
-        return;
+        return y;
     }
 
-    const margin = 18;
+    doc.setFont(
+        "helvetica",
+        "normal"
+    );
 
-    const pageWidth =
-        doc.internal.pageSize.getWidth();
-
-    const usableWidth =
-        pageWidth -
-        margin * 2;
+    doc.setFontSize(9);
 
     const lines =
         doc.splitTextToSize(
             String(text),
-            usableWidth
+            width
         );
-
-    const lineHeight = 5;
-
-    ensurePDFSpace(
-        doc,
-        lines.length *
-            lineHeight +
-            10
-    );
-
-    const y =
-        getPDFY(doc);
-
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-    doc.setFontSize(9);
 
     doc.text(
         lines,
-        margin,
+        x,
         y
     );
 
-    doc.lastAutoTable = {
-        finalY:
-            y +
-            lines.length *
-                lineHeight +
-            8
-    };
+    return (
+        y +
+        lines.length * 4.5
+    );
 }
 
-
-// ============================================================
-// PDF NUMBERED LIST
-// ============================================================
-
-function addPDFNumberedList(
+function addPdfNumberedItems(
     doc,
-    items
+    items,
+    x,
+    y
 ) {
-
-    if (!Array.isArray(items)) {
-
-        addPDFParagraph(
+    if (
+        !items ||
+        items.length === 0
+    ) {
+        return addPdfParagraph(
             doc,
-            normalizeAIValue(items)
+            "No information available.",
+            x,
+            y,
+            174
         );
-
-        return;
     }
-
-    if (items.length === 0) {
-
-        addPDFParagraph(
-            doc,
-            currentLanguage === "id"
-                ? "Tidak ada informasi."
-                : "No information available."
-        );
-
-        return;
-    }
-
-    const margin = 18;
-
-    const pageWidth =
-        doc.internal.pageSize.getWidth();
-
-    const usableWidth =
-        pageWidth -
-        margin * 2 -
-        10;
-
-    const lineHeight = 4.5;
 
     items.forEach(
-        function (item, index) {
-
-            const text =
-                normalizeAIValue(item);
-
-            if (!text) {
-                return;
-            }
-
-            const lines =
-                doc.splitTextToSize(
-                    text,
-                    usableWidth
-                );
-
-            const requiredHeight =
-                lines.length *
-                    lineHeight +
-                8;
-
-            ensurePDFSpace(
+        (item, index) => {
+            y = ensurePdfSpace(
                 doc,
-                requiredHeight
+                y,
+                25
             );
-
-            let y =
-                getPDFY(doc);
 
             doc.setFont(
                 "helvetica",
@@ -1942,15 +1526,61 @@ function addPDFNumberedList(
 
             doc.setFontSize(9);
 
-            doc.text(
-                String(
+            const number =
+                `${String(
                     index + 1
-                ).padStart(
-                    2,
-                    "0"
-                ),
-                margin,
+                ).padStart(2, "0")}.`;
+
+            doc.text(
+                number,
+                x,
                 y
+            );
+
+            const textX =
+                x + 9;
+
+            y =
+                addPdfParagraph(
+                    doc,
+                    normalizeText(item),
+                    textX,
+                    y,
+                    165
+                );
+
+            y += 4;
+        }
+    );
+
+    return y;
+}
+
+function addPdfBulletItems(
+    doc,
+    items,
+    x,
+    y
+) {
+    if (
+        !items ||
+        items.length === 0
+    ) {
+        return addPdfParagraph(
+            doc,
+            "No information available.",
+            x,
+            y,
+            174
+        );
+    }
+
+    items.forEach(
+        (item) => {
+            y = ensurePdfSpace(
+                doc,
+                y,
+                20
             );
 
             doc.setFont(
@@ -1958,413 +1588,503 @@ function addPDFNumberedList(
                 "normal"
             );
 
-            doc.setFontSize(8.5);
+            doc.setFontSize(9);
 
             doc.text(
-                lines,
-                margin + 9,
+                "•",
+                x,
                 y
             );
 
-            doc.lastAutoTable = {
-                finalY:
-                    y +
-                    lines.length *
-                        lineHeight +
-                    5
-            };
+            y =
+                addPdfParagraph(
+                    doc,
+                    normalizeText(item),
+                    x + 6,
+                    y,
+                    168
+                );
+
+            y += 3;
         }
+    );
+
+    return y;
+}
+
+function ensurePdfSpace(
+    doc,
+    y,
+    requiredSpace
+) {
+    const pageHeight =
+        doc.internal.pageSize.height;
+
+    if (
+        y + requiredSpace >
+        pageHeight - 20
+    ) {
+        doc.addPage();
+        return 20;
+    }
+
+    return y;
+}
+
+function drawPdfLine(
+    doc,
+    x1,
+    y1,
+    x2,
+    y2
+) {
+    doc.setLineWidth(0.3);
+
+    doc.line(
+        x1,
+        y1,
+        x2,
+        y2
     );
 }
 
-
-// ============================================================
-// PDF PAGE BREAK
-// ============================================================
-
-function addPageBreak(doc) {
-
-    doc.addPage();
-
-    doc.lastAutoTable = {
-        finalY: 25
-    };
-}
-
-
-// ============================================================
-// PDF CURRENT Y POSITION
-// ============================================================
-
-function getPDFY(doc) {
-
-    if (
-        doc.lastAutoTable &&
-        typeof doc.lastAutoTable.finalY ===
-            "number"
-    ) {
-        return (
-            doc.lastAutoTable.finalY +
-            7
-        );
-    }
-
-    return 35;
-}
-
-
-// ============================================================
-// ENSURE PDF SPACE
-// ============================================================
-
-function ensurePDFSpace(
-    doc,
-    requiredHeight
-) {
-
-    const pageHeight =
-        doc.internal.pageSize.getHeight();
-
-    const marginBottom = 20;
-
-    const y =
-        getPDFY(doc);
-
-    if (
-        y +
-            requiredHeight >
-        pageHeight -
-            marginBottom
-    ) {
-
-        doc.addPage();
-
-        doc.lastAutoTable = {
-            finalY: 25
-        };
-    }
-}
-
-
-// ============================================================
-// PDF FOOTER
-// ============================================================
-
-function addPDFFooter(doc) {
-
+function addPdfFooter(doc) {
     const pageCount =
-        doc.internal.pageSize.getNumberOfPages();
-
-    const pageWidth =
-        doc.internal.pageSize.getWidth();
-
-    const pageHeight =
-        doc.internal.pageSize.getHeight();
+        doc.internal.getNumberOfPages();
 
     for (
         let page = 1;
         page <= pageCount;
         page++
     ) {
+        doc.setPage(page);
 
-        doc.setPage(
-            page
-        );
+        const pageHeight =
+            doc.internal.pageSize.height;
 
         doc.setFont(
             "helvetica",
             "normal"
         );
 
-        doc.setFontSize(
-            7
-        );
-
-        doc.setLineWidth(
-            0.2
-        );
-
-        doc.line(
-            15,
-            pageHeight - 12,
-            pageWidth - 15,
-            pageHeight - 12
-        );
+        doc.setFontSize(7);
 
         doc.text(
             "AI Video Summarizer",
-            15,
-            pageHeight - 7
+            18,
+            pageHeight - 10
         );
 
         doc.text(
-            "Page " +
-                page +
-                " of " +
-                pageCount,
-            pageWidth - 15,
-            pageHeight - 7,
+            `Page ${page} of ${pageCount}`,
+            192,
+            pageHeight - 10,
             {
-                align:
-                    "right"
+                align: "right"
             }
         );
     }
 }
 
+function createPdfFilename(
+    title,
+    language
+) {
+    let cleanTitle =
+        String(title || "video")
+            .replace(
+                /[<>:"/\\|?*]+/g,
+                ""
+            )
+            .replace(
+                /\s+/g,
+                " "
+            )
+            .trim();
 
-// ============================================================
-// STATUS
-// ============================================================
+    if (
+        cleanTitle.length > 80
+    ) {
+        cleanTitle =
+            cleanTitle.substring(
+                0,
+                80
+            );
+    }
+
+    return (
+        `AI_Video_Analysis_${cleanTitle}_${language.toUpperCase()}.pdf`
+    );
+}
+
+/* ============================================================
+   STATUS
+   ============================================================ */
 
 function showStatus(
     message,
     type
 ) {
-
-    const element =
+    const status =
         document.getElementById(
             "status"
         );
 
-    if (!element) {
+    if (!status) {
         return;
     }
 
-    element.className =
-        "status " +
-        type;
+    status.className =
+        `status-${type}`;
 
-    element.innerText =
+    status.textContent =
         message;
 }
 
+/* ============================================================
+   LOADING STATE
+   ============================================================ */
 
-// ============================================================
-// CLEAR RESULTS
-// ============================================================
+function setLoadingState(
+    loading
+) {
+    const button =
+        document.getElementById(
+            "analyzeButton"
+        );
 
-function clearResults() {
+    if (!button) {
+        return;
+    }
 
+    button.disabled =
+        loading;
+
+    if (loading) {
+        button.dataset.originalText =
+            button.textContent;
+
+        button.textContent =
+            "ANALYZING...";
+    } else {
+        button.textContent =
+            button.dataset.originalText ||
+            "ANALYZE";
+    }
+}
+
+/* ============================================================
+   CLEAR PREVIOUS RESULTS
+   ============================================================ */
+
+function clearPreviousResults() {
     const videoInfo =
         document.getElementById(
             "videoInfo"
         );
-
-    if (videoInfo) {
-        videoInfo.innerHTML =
-            "<p>Analyzing video...</p>";
-    }
 
     const transcript =
         document.getElementById(
             "transcript"
         );
 
-    if (transcript) {
-        transcript.innerHTML =
-            "<p>Loading transcript...</p>";
-    }
-
     const analysis =
         document.getElementById(
             "professionalAnalysis"
         );
 
-    if (analysis) {
-        analysis.innerHTML = "";
+    if (videoInfo) {
+        videoInfo.innerHTML = `
+            <p>
+                Analyzing video information...
+            </p>
+        `;
     }
 
-    const exportContainer =
-        document.getElementById(
-            "exportContainer"
-        );
+    if (transcript) {
+        transcript.innerHTML = `
+            <p>
+                Processing transcript...
+            </p>
+        `;
+    }
 
-    if (exportContainer) {
-        exportContainer.remove();
+    if (analysis) {
+        analysis.remove();
     }
 }
 
+/* ============================================================
+   ERROR RESULT
+   ============================================================ */
 
-// ============================================================
-// ERROR UI
-// ============================================================
-
-function renderError(
+function renderErrorResult(
     message
 ) {
-
-    const analysis =
+    const videoInfo =
         document.getElementById(
-            "professionalAnalysis"
+            "videoInfo"
         );
 
-    if (!analysis) {
+    if (!videoInfo) {
         return;
     }
 
-    analysis.innerHTML = `
-        <div class="analysis-error">
+    videoInfo.innerHTML = `
+        <div class="error-result">
 
-            <div class="error-title">
-                ANALYSIS FAILED
-            </div>
+            <strong>
+                Analysis failed
+            </strong>
 
-            <div class="error-message">
+            <p>
                 ${escapeHtml(
-                    message ||
-                    "Unknown error."
+                    message
                 )}
-            </div>
+            </p>
 
         </div>
     `;
 }
 
+/* ============================================================
+   MISSING ANALYSIS
+   ============================================================ */
 
-// ============================================================
-// INFO ITEM
-// ============================================================
+function renderMissingAnalysis() {
+    const transcriptCard =
+        document.querySelector(
+            ".transcript-card"
+        );
 
-function infoItem(
-    label,
-    value
-) {
-
-    return `
-        <div class="info-item">
-
-            <div class="info-label">
-                ${label}
-            </div>
-
-            <div class="info-value">
-                ${value}
-            </div>
-
-        </div>
-    `;
-}
-
-
-// ============================================================
-// FORMAT NUMBER
-// ============================================================
-
-function formatNumber(
-    value
-) {
-
-    if (
-        value === null ||
-        value === undefined ||
-        value === ""
-    ) {
-        return "-";
+    if (!transcriptCard) {
+        return;
     }
 
-    const number =
-        Number(value);
+    let container =
+        document.getElementById(
+            "professionalAnalysis"
+        );
+
+    if (!container) {
+        container =
+            document.createElement(
+                "div"
+            );
+
+        container.id =
+            "professionalAnalysis";
+
+        container.className =
+            "professional-analysis";
+
+        transcriptCard.parentNode.insertBefore(
+            container,
+            transcriptCard
+        );
+    }
+
+    container.innerHTML = `
+        <section class="analysis-section">
+
+            <h2>
+                PROFESSIONAL CONTENT ANALYSIS
+            </h2>
+
+            <p>
+                Analysis is not available
+                in the selected language.
+            </p>
+
+        </section>
+    `;
+}
+
+/* ============================================================
+   NORMALIZATION
+   ============================================================ */
+
+function normalizeArray(value) {
+    if (!value) {
+        return [];
+    }
+
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => {
+                return normalizeText(
+                    item
+                );
+            })
+            .filter(
+                (item) => item.length > 0
+            );
+    }
 
     if (
-        Number.isNaN(number)
+        typeof value === "string"
+    ) {
+        return value
+            .split(/\n+/)
+            .map((item) =>
+                normalizeText(item)
+            )
+            .filter(
+                (item) =>
+                    item.length > 0
+            );
+    }
+
+    return [
+        normalizeText(value)
+    ].filter(
+        (item) => item.length > 0
+    );
+}
+
+function normalizeText(value) {
+    if (
+        value === null ||
+        value === undefined
+    ) {
+        return "";
+    }
+
+    if (
+        typeof value === "string"
+    ) {
+        return cleanAIFormatting(
+            value
+        );
+    }
+
+    if (
+        typeof value === "number" ||
+        typeof value === "boolean"
     ) {
         return String(value);
     }
 
-    return number.toLocaleString(
-        "en-US"
-    );
-}
-
-
-// ============================================================
-// FORMAT TIMESTAMP
-// ============================================================
-
-function formatTimestamp(
-    seconds
-) {
-
-    seconds =
-        Number(seconds);
-
     if (
-        !Number.isFinite(seconds) ||
-        seconds < 0
+        typeof value === "object"
     ) {
-        seconds = 0;
+        /*
+         * Protect the frontend from
+         * accidentally displaying:
+         *
+         * {'issue': '...', 'reason': '...'}
+         *
+         * or:
+         *
+         * {"issue":"..."}
+         */
+
+        if (
+            value.issue ||
+            value.reason
+        ) {
+            const issue =
+                value.issue
+                    ? String(
+                          value.issue
+                      )
+                    : "";
+
+            const reason =
+                value.reason
+                    ? String(
+                          value.reason
+                      )
+                    : "";
+
+            if (
+                issue &&
+                reason
+            ) {
+                return cleanAIFormatting(
+                    `${issue} ${reason}`
+                );
+            }
+
+            return cleanAIFormatting(
+                issue || reason
+            );
+        }
+
+        try {
+            return cleanAIFormatting(
+                JSON.stringify(value)
+            );
+        } catch (error) {
+            return String(value);
+        }
     }
 
-    const totalSeconds =
-        Math.floor(seconds);
-
-    const hours =
-        Math.floor(
-            totalSeconds / 3600
-        );
-
-    const minutes =
-        Math.floor(
-            (totalSeconds % 3600) /
-            60
-        );
-
-    const secs =
-        totalSeconds % 60;
-
-    if (hours > 0) {
-
-        return (
-            String(hours).padStart(2, "0") +
-            ":" +
-            String(minutes).padStart(2, "0") +
-            ":" +
-            String(secs).padStart(2, "0")
-        );
-
-    }
-
-    return (
-        String(minutes).padStart(2, "0") +
-        ":" +
-        String(secs).padStart(2, "0")
-    );
+    return String(value);
 }
 
-
-// ============================================================
-// SANITIZE FILENAME
-// ============================================================
-
-function sanitizeFilename(
-    filename
+function cleanAIFormatting(
+    text
 ) {
-
-    return String(filename)
+    return String(text)
         .replace(
-            /[<>:"/\\|?*\x00-\x1F]/g,
+            /^\s*```(?:json|text|markdown)?\s*/i,
             ""
         )
         .replace(
-            /\s+/g,
-            "_"
+            /\s*```\s*$/i,
+            ""
         )
-        .substring(
-            0,
-            100
-        );
+        .replace(
+            /^\s*\*\*(\d+)\*\*\s*/gm,
+            "$1. "
+        )
+        .replace(
+            /^\s*[-*]\s+/gm,
+            ""
+        )
+        .trim();
 }
 
+/* ============================================================
+   HTML FORMATTING
+   ============================================================ */
 
-// ============================================================
-// ESCAPE HTML
-// ============================================================
-
-function escapeHtml(
-    value
+function formatParagraphs(
+    text
 ) {
+    const normalized =
+        normalizeText(text);
 
+    if (!normalized) {
+        return `
+            <p class="empty-analysis">
+                No information available.
+            </p>
+        `;
+    }
+
+    return normalized
+        .split(/\n{2,}/)
+        .map(
+            (paragraph) => {
+                return `
+                    <p>
+                        ${escapeHtml(
+                            paragraph.trim()
+                        )}
+                    </p>
+                `;
+            }
+        )
+        .join("");
+}
+
+/* ============================================================
+   ESCAPE HTML
+   ============================================================ */
+
+function escapeHtml(value) {
     return String(value)
         .replace(
             /&/g,
@@ -2388,478 +2108,31 @@ function escapeHtml(
         );
 }
 
+/* ============================================================
+   VIDEO URL
+   ============================================================ */
 
-// ============================================================
-// PROFESSIONAL UI INJECTION
-// ============================================================
-
-function injectProfessionalUI() {
-
-    injectStyles();
-
-    const resultCard =
-        document.querySelector(
-            ".result-card"
-        );
-
-    if (!resultCard) {
-        return;
-    }
-
-    const originalVideoInfo =
+function getVideoUrl() {
+    const input =
         document.getElementById(
-            "videoInfo"
+            "videoUrl"
         );
 
-    if (
-        !document.getElementById(
-            "professionalAnalysis"
-        )
-    ) {
-
-        const analysisWrapper =
-            document.createElement(
-                "div"
-            );
-
-        analysisWrapper.id =
-            "professionalAnalysis";
-
-        analysisWrapper.className =
-            "professional-analysis";
-
-        const heading =
-            document.createElement(
-                "div"
-            );
-
-        heading.className =
-            "analysis-heading";
-
-        heading.innerHTML = `
-            <div>
-                <span class="analysis-kicker">
-                    PROFESSIONAL REPORT
-                </span>
-
-                <h2>
-                    CONTENT ANALYSIS
-                </h2>
-            </div>
-        `;
-
-        resultCard.appendChild(
-            heading
-        );
-
-        resultCard.appendChild(
-            analysisWrapper
-        );
+    if (!input) {
+        return "";
     }
+
+    return input.value.trim();
 }
 
-
-// ============================================================
-// PROFESSIONAL CSS
-// ============================================================
-
-function injectStyles() {
-
-    if (
-        document.getElementById(
-            "professionalReportStyles"
-        )
-    ) {
-        return;
-    }
-
-    const style =
-        document.createElement(
-            "style"
-        );
-
-    style.id =
-        "professionalReportStyles";
-
-    style.textContent = `
-
-        .professional-analysis {
-            margin-top: 25px;
-        }
-
-        .analysis-heading {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px 0;
-            border-top: 1px solid #d9dee5;
-            border-bottom: 1px solid #d9dee5;
-            margin-top: 20px;
-        }
-
-        .analysis-kicker {
-            display: block;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 2px;
-            color: #6b7280;
-            margin-bottom: 5px;
-        }
-
-        .analysis-heading h2 {
-            margin: 0;
-            font-size: 24px;
-            letter-spacing: 0.5px;
-        }
-
-        .language-selector-container {
-            display: flex;
-            justify-content: flex-end;
-            align-items: center;
-            gap: 10px;
-            margin: 20px 0;
-        }
-
-        .language-selector-container label {
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            color: #6b7280;
-        }
-
-        .language-selector-container select {
-            min-width: 130px;
-            padding: 9px 12px;
-            border: 1px solid #cfd5dd;
-            border-radius: 5px;
-            background: #ffffff;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .report-section {
-            display: flex;
-            gap: 18px;
-            padding: 25px 0;
-            border-bottom: 1px solid #e3e6ea;
-        }
-
-        .section-number {
-            min-width: 38px;
-            font-size: 12px;
-            font-weight: 700;
-            color: #6b7280;
-            letter-spacing: 1px;
-        }
-
-        .section-content {
-            flex: 1;
-        }
-
-        .section-content h2 {
-            margin: 0 0 16px 0;
-            font-size: 17px;
-            letter-spacing: 0.6px;
-        }
-
-        .summary-box {
-            padding: 18px;
-            border-left: 3px solid #374151;
-            background: #f7f8fa;
-            line-height: 1.75;
-            font-size: 14px;
-        }
-
-        .analysis-text {
-            line-height: 1.75;
-            font-size: 14px;
-        }
-
-        .professional-list {
-            margin: 0;
-            padding: 0;
-            list-style: none;
-        }
-
-        .professional-list li {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .list-number {
-            min-width: 32px;
-            font-size: 12px;
-            font-weight: 700;
-            color: #6b7280;
-        }
-
-        .list-content {
-            flex: 1;
-            line-height: 1.7;
-            font-size: 14px;
-        }
-
-        .critical-analysis-list {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        .critical-item {
-            display: flex;
-            gap: 15px;
-            padding: 15px;
-            border: 1px solid #e0e4e8;
-            border-radius: 5px;
-            background: #ffffff;
-        }
-
-        .critical-number {
-            min-width: 32px;
-            font-size: 12px;
-            font-weight: 700;
-            color: #6b7280;
-        }
-
-        .critical-content {
-            flex: 1;
-            line-height: 1.7;
-            font-size: 14px;
-        }
-
-        .info-item {
-            padding: 12px 14px;
-            border: 1px solid #e2e6eb;
-            border-radius: 5px;
-            background: #ffffff;
-        }
-
-        .video-info-grid {
-            display: grid;
-            grid-template-columns: repeat(
-                auto-fit,
-                minmax(180px, 1fr)
-            );
-            gap: 10px;
-        }
-
-        .info-label {
-            font-size: 9px;
-            font-weight: 700;
-            color: #737b87;
-            letter-spacing: 1px;
-            margin-bottom: 6px;
-        }
-
-        .info-value {
-            font-size: 13px;
-            font-weight: 600;
-            line-height: 1.4;
-            word-break: break-word;
-        }
-
-        .hash-container {
-            margin-top: 10px;
-            padding: 10px 12px;
-            background: #f6f7f9;
-            border-radius: 4px;
-            font-size: 10px;
-        }
-
-        .hash-container span {
-            font-weight: 700;
-            margin-right: 8px;
-        }
-
-        .hash-container code {
-            word-break: break-all;
-        }
-
-        .transcript-wrapper {
-            margin-top: 10px;
-        }
-
-        .transcript-header {
-            display: flex;
-            justify-content: space-between;
-            padding: 12px 15px;
-            background: #f1f3f5;
-            border: 1px solid #dfe3e8;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1px;
-        }
-
-        .transcript-scroll {
-            max-height: 550px;
-            overflow-y: auto;
-            border-left: 1px solid #dfe3e8;
-            border-right: 1px solid #dfe3e8;
-            border-bottom: 1px solid #dfe3e8;
-        }
-
-        .transcript-row {
-            display: grid;
-            grid-template-columns: 42px 70px 1fr;
-            gap: 10px;
-            padding: 10px 12px;
-            border-bottom: 1px solid #eceff2;
-            font-size: 12px;
-        }
-
-        .transcript-row:last-child {
-            border-bottom: none;
-        }
-
-        .transcript-index {
-            color: #9aa1aa;
-            font-size: 10px;
-        }
-
-        .transcript-time {
-            font-weight: 700;
-            color: #4b5563;
-            font-family: monospace;
-        }
-
-        .transcript-text {
-            line-height: 1.6;
-        }
-
-        .transcript-empty,
-        .analysis-empty {
-            padding: 20px;
-            color: #737b87;
-            background: #f8f9fa;
-            border-radius: 5px;
-        }
-
-        .analysis-error {
-            padding: 20px;
-            border: 1px solid #e0b4b4;
-            background: #fff6f6;
-            border-radius: 5px;
-        }
-
-        .error-title {
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .error-message {
-            line-height: 1.6;
-            font-size: 13px;
-        }
-
-        .export-container {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 10px;
-            padding: 18px 0;
-            border-top: 1px solid #dfe3e8;
-            margin-top: 20px;
-        }
-
-        .export-pdf-button {
-            border: none;
-            padding: 11px 20px;
-            border-radius: 5px;
-            background: #1f2937;
-            color: #ffffff;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            cursor: pointer;
-        }
-
-        .export-pdf-button:hover {
-            opacity: 0.88;
-        }
-
-        .export-pdf-button:disabled {
-            opacity: 0.55;
-            cursor: wait;
-        }
-
-        .export-language {
-            font-size: 10px;
-            font-weight: 700;
-            color: #737b87;
-            letter-spacing: 1px;
-        }
-
-        .status {
-            margin-top: 10px;
-            padding: 10px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-        }
-
-        .status.loading {
-            background: #f3f4f6;
-            color: #374151;
-        }
-
-        .status.success {
-            background: #f0fdf4;
-            color: #166534;
-        }
-
-        .status.error {
-            background: #fef2f2;
-            color: #991b1b;
-        }
-
-        @media (max-width: 700px) {
-
-            .report-section {
-                flex-direction: column;
-                gap: 8px;
-            }
-
-            .section-number {
-                min-width: auto;
-            }
-
-            .transcript-row {
-                grid-template-columns:
-                    35px
-                    65px
-                    1fr;
-            }
-
-            .export-container {
-                justify-content: flex-start;
-                flex-wrap: wrap;
-            }
-
-            .analysis-heading {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 10px;
-            }
-        }
-
-    `;
-
-    document.head.appendChild(
-        style
-    );
-}
-
-
-// ============================================================
-// GLOBAL EXPORTS
-// ============================================================
-
-window.changeLanguage =
-    changeLanguage;
-
-window.exportPDF =
-    exportPDF;
-
-window.analyzeVideo =
-    analyzeVideo;
+/* ============================================================
+   CONSOLE INFORMATION
+   ============================================================ */
+
+console.log(
+    "AI Video Summarizer script loaded."
+);
+console.log(
+    "API:",
+    API_URL
+);
