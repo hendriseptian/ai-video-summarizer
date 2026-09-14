@@ -114,6 +114,10 @@ async function analyzeVideo() {
         currentAIData = extractAIData(data);
         currentTranscriptData = getTranscriptData(data);
 
+        console.log("API RESPONSE:", data);
+        console.log("AI DATA:", currentAIData);
+        console.log("TRANSCRIPT DATA:", currentTranscriptData);
+        
         if (!currentAIData) {
             throw new Error(
                 "AI analysis result was not found in server response."
@@ -181,6 +185,38 @@ function extractAIData(data) {
     if (!data || typeof data !== "object") {
         return null;
     }
+
+    // ========================================================
+    // CURRENT BACKEND RESPONSE
+    // Backend returns:
+    //
+    // {
+    //     "status": "success",
+    //     "video": {...},
+    //     "transcript": {...},
+    //     "ai": {
+    //         "en": {...},
+    //         "id": {...}
+    //     },
+    //     "processing": {...}
+    // }
+    // ========================================================
+
+    if (
+        data.ai &&
+        typeof data.ai === "object"
+    ) {
+        if (
+            data.ai.en ||
+            data.ai.id
+        ) {
+            return data.ai;
+        }
+    }
+
+    // ========================================================
+    // BACKWARD COMPATIBILITY
+    // ========================================================
 
     if (
         data.en &&
