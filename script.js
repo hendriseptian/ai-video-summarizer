@@ -2,6 +2,11 @@
    EMAIL LOGIN
    ============================================================ */
 
+const ALLOWED_EMAILS = [
+    "hendriseptian25@gmail.com",
+    "tyasoktaviana08@gmail.com"
+];
+
 const LOGIN_STORAGE_KEY =
     "ai_video_summarizer_user_email";
 
@@ -58,14 +63,17 @@ document.addEventListener(
 
         if (
             savedEmail &&
-            isValidEmail(
-                savedEmail
-            )
+            isValidEmail(savedEmail) &&
+            ALLOWED_EMAILS.includes(savedEmail.toLowerCase())
         ) {
 
             showApplication();
 
         } else {
+
+            localStorage.removeItem(
+                LOGIN_STORAGE_KEY
+            );
 
             showLogin();
 
@@ -106,7 +114,21 @@ document.addEventListener(
 
                 }
 
+                if (!ALLOWED_EMAILS.includes(email)) {
 
+                    if (loginStatus) {
+
+                        loginStatus.textContent =
+                            "Access denied. Your email is not authorized.";
+
+                        loginStatus.className =
+                            "login-status error";
+
+                    }
+
+                    return;
+
+                }
                 /*
                  * Save email locally
                  */
