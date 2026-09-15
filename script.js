@@ -56,7 +56,7 @@ document.addEventListener(
          */
 
         const savedEmail =
-            localStorage.getItem(
+            sessionStorage.getItem(
                 LOGIN_STORAGE_KEY
             );
 
@@ -133,7 +133,7 @@ document.addEventListener(
                  * Save email locally
                  */
 
-                localStorage.setItem(
+                sessionStorage.setItem(
                     LOGIN_STORAGE_KEY,
                     email
                 );
