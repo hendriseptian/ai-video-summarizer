@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
+from contextvars import ContextVar
 
 
 # ============================================================
@@ -17,7 +18,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.4.4"
+    version="9.5.0"
 )
 
 
@@ -74,6 +75,20 @@ AI_QUOTA_GUARD = {
 }
 
 QUOTA_KV_KEY = "workers-ai-daily-quota-guard"
+
+# Persistent application-side Neuron usage estimate.
+# This is an estimate based on input/output token counts, not the
+# official Cloudflare dashboard value.
+NEURON_USAGE_KV_KEY = "workers-ai-daily-neuron-estimate"
+NEURON_DAILY_LIMIT = 10000
+GLM_INPUT_NEURONS_PER_MILLION = 5500
+GLM_OUTPUT_NEURONS_PER_MILLION = 36400
+CHARS_PER_ESTIMATED_TOKEN = 4.0
+
+AI_USAGE_CONTEXT = ContextVar(
+    "ai_usage_context",
+    default=None
+)
 
 
 
@@ -1860,6 +1875,263 @@ async def set_quota_guard_block(model, message):
     await save_quota_guard()
 
 
+def estimate_tokens_from_text(text):
+    if not text:
+        return 0
+
+    return max(
+        1,
+        int(
+            (len(str(text)) + CHARS_PER_ESTIMATED_TOKEN - 1)
+            / CHARS_PER_ESTIMATED_TOKEN
+        )
+    )
+
+
+def estimate_neurons(
+    input_tokens,
+    output_tokens,
+    model=None
+):
+    model_text = str(model or "")
+
+    if "llama-3.1-8b-instruct-fast" in model_text:
+        input_rate = 4119
+        output_rate = 34868
+    else:
+        input_rate = GLM_INPUT_NEURONS_PER_MILLION
+        output_rate = GLM_OUTPUT_NEURONS_PER_MILLION
+
+    input_neurons = (
+        input_tokens
+        * input_rate
+        / 1_000_000
+    )
+
+    output_neurons = (
+        output_tokens
+        * output_rate
+        / 1_000_000
+    )
+
+    return max(
+        1,
+        int(
+            round(
+                input_neurons + output_neurons
+            )
+        )
+    )
+
+
+def record_ai_usage_estimate(
+    system_prompt,
+    user_prompt,
+    result,
+    model
+):
+    """Record per-request estimated Workers AI usage in request context."""
+    context = AI_USAGE_CONTEXT.get()
+
+    if context is None:
+        return
+
+    input_text = (
+        str(system_prompt or "")
+        + "\n"
+        + str(user_prompt or "")
+    )
+
+    output_text = extract_ai_text(
+        result
+    )
+
+    input_tokens = estimate_tokens_from_text(
+        input_text
+    )
+
+    output_tokens = estimate_tokens_from_text(
+        output_text
+    ) if output_text else 0
+
+    neurons = estimate_neurons(
+        input_tokens,
+        output_tokens,
+        model
+    )
+
+    context["estimated_neurons"] = (
+        context.get("estimated_neurons", 0)
+        + neurons
+    )
+
+    context["estimated_input_tokens"] = (
+        context.get("estimated_input_tokens", 0)
+        + input_tokens
+    )
+
+    context["estimated_output_tokens"] = (
+        context.get("estimated_output_tokens", 0)
+        + output_tokens
+    )
+
+    context["ai_calls"] = (
+        context.get("ai_calls", 0)
+        + 1
+    )
+
+    context["models"] = list(
+        dict.fromkeys(
+            context.get("models", [])
+            + [str(model)]
+        )
+    )
+
+
+async def load_neuron_usage():
+    try:
+        raw = await env.QUOTA_KV.get(
+            NEURON_USAGE_KV_KEY
+        )
+
+        if not raw:
+            return {
+                "date_utc": utc_date_key(),
+                "estimated_neurons": 0,
+                "videos_analyzed": 0,
+                "last_video_neurons": 0,
+                "last_updated_utc": None
+            }
+
+        data = json.loads(raw)
+
+        if not isinstance(data, dict):
+            raise ValueError("Invalid neuron usage state")
+
+        today = utc_date_key()
+
+        if data.get("date_utc") != today:
+            return {
+                "date_utc": today,
+                "estimated_neurons": 0,
+                "videos_analyzed": 0,
+                "last_video_neurons": 0,
+                "last_updated_utc": None
+            }
+
+        return {
+            "date_utc": today,
+            "estimated_neurons": max(
+                0,
+                int(data.get("estimated_neurons", 0) or 0)
+            ),
+            "videos_analyzed": max(
+                0,
+                int(data.get("videos_analyzed", 0) or 0)
+            ),
+            "last_video_neurons": max(
+                0,
+                int(data.get("last_video_neurons", 0) or 0)
+            ),
+            "last_updated_utc": data.get(
+                "last_updated_utc"
+            )
+        }
+
+    except Exception:
+        return {
+            "date_utc": utc_date_key(),
+            "estimated_neurons": 0,
+            "videos_analyzed": 0,
+            "last_video_neurons": 0,
+            "last_updated_utc": None
+        }
+
+
+async def save_neuron_usage(data):
+    try:
+        await env.QUOTA_KV.put(
+            NEURON_USAGE_KV_KEY,
+            json.dumps(
+                data,
+                ensure_ascii=False
+            ),
+            expiration_ttl=172800
+        )
+    except Exception:
+        pass
+
+
+async def add_neuron_usage_estimate(neurons):
+    neurons = max(
+        0,
+        int(neurons or 0)
+    )
+
+    data = await load_neuron_usage()
+
+    data["estimated_neurons"] = min(
+        NEURON_DAILY_LIMIT,
+        data["estimated_neurons"] + neurons
+    )
+
+    data["videos_analyzed"] += 1
+    data["last_video_neurons"] = neurons
+    data["last_updated_utc"] = (
+        utc_now()
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+    await save_neuron_usage(data)
+
+    return data
+
+
+async def neuron_usage_status():
+    data = await load_neuron_usage()
+
+    used = min(
+        NEURON_DAILY_LIMIT,
+        max(0, data["estimated_neurons"])
+    )
+
+    remaining = max(
+        0,
+        NEURON_DAILY_LIMIT - used
+    )
+
+    videos = data["videos_analyzed"]
+
+    if videos > 0:
+        average = max(
+            1,
+            int(
+                round(
+                    used / videos
+                )
+            )
+        )
+        estimated_videos = (
+            remaining // average
+        )
+    else:
+        average = 0
+        estimated_videos = None
+
+    return {
+        "mode": "estimated",
+        "daily_limit_neurons": NEURON_DAILY_LIMIT,
+        "estimated_used_neurons": used,
+        "estimated_remaining_neurons": remaining,
+        "videos_analyzed_today": videos,
+        "average_neurons_per_video": average,
+        "last_video_neurons": data["last_video_neurons"],
+        "estimated_videos_remaining": estimated_videos,
+        "last_updated_utc": data["last_updated_utc"]
+    }
+
+
 async def quota_status():
     now = utc_now()
     await refresh_quota_guard()
@@ -1878,7 +2150,8 @@ async def quota_status():
         "blocked_date_utc": AI_QUOTA_GUARD.get("blocked_date"),
         "last_model": AI_QUOTA_GUARD.get("last_model", ""),
         "blocked_at_utc": AI_QUOTA_GUARD.get("blocked_at_utc"),
-        "last_error": AI_QUOTA_GUARD.get("last_error", "")
+        "last_error": AI_QUOTA_GUARD.get("last_error", ""),
+        "usage": await neuron_usage_status()
     }
 
 
@@ -1943,10 +2216,19 @@ async def run_ai(
         for attempt in range(AI_RETRIES + 1):
 
             try:
-                return await env.AI.run(
+                result = await env.AI.run(
                     model,
                     payload
                 )
+
+                record_ai_usage_estimate(
+                    system_prompt,
+                    user_prompt,
+                    result,
+                    model
+                )
+
+                return result
 
             except Exception as error:
 
@@ -4538,7 +4820,7 @@ AGGREGATION DATA:
 @app.get("/quota-status")
 async def quota_status_endpoint():
     return {
-        "version": "9.4.4",
+        "version": "9.5.0",
         "provider": "Cloudflare Workers AI",
         "primary_model": AI_MODEL,
         "fallback_model": AI_FALLBACK_MODEL,
@@ -4570,7 +4852,7 @@ async def ai_test():
                 "ok",
 
             "version":
-                "9.4.3",
+                "9.5.0",
 
             "ai":
                 parsed,
@@ -4594,7 +4876,7 @@ async def ai_test():
                 "error",
 
             "version":
-                "9.4.3",
+                "9.5.0",
 
             "primary_model":
                 AI_MODEL,
@@ -4631,7 +4913,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.4.3"
+            "9.5.0"
     }
 
 
@@ -4647,7 +4929,7 @@ async def health():
             "ok",
 
         "version":
-            "9.4.3"
+            "9.5.0"
     }
 
 
@@ -4659,6 +4941,14 @@ async def health():
 async def analyze(
     request: Request
 ):
+
+    AI_USAGE_CONTEXT.set({
+        "estimated_neurons": 0,
+        "estimated_input_tokens": 0,
+        "estimated_output_tokens": 0,
+        "ai_calls": 0,
+        "models": []
+    })
 
     try:
 
@@ -4823,6 +5113,25 @@ async def analyze(
         )
 
         # ----------------------------------------------------
+        # ESTIMATED NEURON USAGE
+        # ----------------------------------------------------
+
+        usage_context = AI_USAGE_CONTEXT.get() or {}
+
+        estimated_video_neurons = int(
+            usage_context.get(
+                "estimated_neurons",
+                0
+            ) or 0
+        )
+
+        usage_record = await add_neuron_usage_estimate(
+            estimated_video_neurons
+        )
+
+        current_quota = await quota_status()
+
+        # ----------------------------------------------------
         # FINAL RESPONSE
         # ----------------------------------------------------
 
@@ -4888,8 +5197,32 @@ async def analyze(
                     ),
 
                 "transcript_hash":
-                    transcript_hash
-            }
+                    transcript_hash,
+
+                "estimated_neurons":
+                    estimated_video_neurons,
+
+                "estimated_input_tokens":
+                    usage_context.get(
+                        "estimated_input_tokens",
+                        0
+                    ),
+
+                "estimated_output_tokens":
+                    usage_context.get(
+                        "estimated_output_tokens",
+                        0
+                    ),
+
+                "ai_calls":
+                    usage_context.get(
+                        "ai_calls",
+                        0
+                    )
+            },
+
+            "quota":
+                current_quota
         }
 
     except ValueError as error:
