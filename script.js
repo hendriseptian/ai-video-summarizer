@@ -1,3 +1,211 @@
+/* ============================================================
+   EMAIL LOGIN
+   ============================================================ */
+
+const LOGIN_STORAGE_KEY =
+    "ai_video_summarizer_user_email";
+
+
+document.addEventListener(
+    "DOMContentLoaded",
+    function () {
+
+        const loginScreen =
+            document.getElementById(
+                "loginScreen"
+            );
+
+        const appShell =
+            document.getElementById(
+                "appShell"
+            );
+
+        const emailInput =
+            document.getElementById(
+                "emailInput"
+            );
+
+        const loginButton =
+            document.getElementById(
+                "loginButton"
+            );
+
+        const loginStatus =
+            document.getElementById(
+                "loginStatus"
+            );
+
+
+        if (
+            !loginScreen ||
+            !appShell ||
+            !emailInput ||
+            !loginButton
+        ) {
+            return;
+        }
+
+
+        /*
+         * Check existing login
+         */
+
+        const savedEmail =
+            localStorage.getItem(
+                LOGIN_STORAGE_KEY
+            );
+
+
+        if (
+            savedEmail &&
+            isValidEmail(
+                savedEmail
+            )
+        ) {
+
+            showApplication();
+
+        } else {
+
+            showLogin();
+
+        }
+
+
+        /*
+         * Continue button
+         */
+
+        loginButton.addEventListener(
+            "click",
+            function () {
+
+                const email =
+                    emailInput.value
+                        .trim()
+                        .toLowerCase();
+
+
+                if (
+                    !isValidEmail(
+                        email
+                    )
+                ) {
+
+                    if (loginStatus) {
+
+                        loginStatus.textContent =
+                            "Please enter a valid email address.";
+
+                        loginStatus.className =
+                            "login-status error";
+
+                    }
+
+                    return;
+
+                }
+
+
+                /*
+                 * Save email locally
+                 */
+
+                localStorage.setItem(
+                    LOGIN_STORAGE_KEY,
+                    email
+                );
+
+
+                if (loginStatus) {
+
+                    loginStatus.textContent =
+                        "Login successful.";
+
+                    loginStatus.className =
+                        "login-status success";
+
+                }
+
+
+                showApplication();
+
+            }
+        );
+
+
+        /*
+         * Enter key
+         */
+
+        emailInput.addEventListener(
+            "keydown",
+            function (event) {
+
+                if (
+                    event.key === "Enter"
+                ) {
+
+                    loginButton.click();
+
+                }
+
+            }
+        );
+
+
+        function showLogin() {
+
+            loginScreen.style.display =
+                "flex";
+
+            appShell.style.display =
+                "none";
+
+            setTimeout(
+                function () {
+
+                    emailInput.focus();
+
+                },
+                50
+            );
+
+        }
+
+
+        function showApplication() {
+
+            loginScreen.style.display =
+                "none";
+
+            appShell.style.display =
+                "block";
+
+        }
+
+    }
+);
+
+
+/* ============================================================
+   EMAIL VALIDATION
+   ============================================================ */
+
+function isValidEmail(
+    email
+) {
+
+    if (!email) {
+        return false;
+    }
+
+
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        .test(email);
+
+}
+
 function isValidYouTubeUrl(value) {
     if (!value) return false;
     try {
