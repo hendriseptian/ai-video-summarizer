@@ -255,6 +255,331 @@ let currentData = null;
 let currentAIRoot = null;
 let currentLanguage = "en";
 
+const QUOTA_STATUS_URL =
+    "https://ai-video-summarizer.hendriseptian25.workers.dev/quota-status";
+
+
+/* ============================================================
+   WORKERS AI NEURON MONITOR
+   ============================================================ */
+
+function formatNeuronNumber(value) {
+
+    const number =
+        Number(value || 0);
+
+    return number.toLocaleString(
+        undefined,
+        {
+            maximumFractionDigits: 0
+        }
+    );
+
+}
+
+
+function formatResetTime(isoString) {
+
+    if (!isoString) {
+        return "-";
+    }
+
+    try {
+
+        return new Date(
+            isoString
+        ).toLocaleString(
+            undefined,
+            {
+                dateStyle: "medium",
+                timeStyle: "short"
+            }
+        );
+
+    } catch (error) {
+
+        return "-";
+
+    }
+
+}
+
+
+function renderNeuronMonitor(
+    quotaData
+) {
+
+    const card =
+        document.getElementById(
+            "neuronMonitor"
+        );
+
+    if (
+        !card ||
+        !quotaData
+    ) {
+        return;
+    }
+
+
+    const usage =
+        quotaData.usage || {};
+
+
+    const limit =
+        Number(
+            usage.daily_limit_neurons ||
+            quotaData.daily_limit_neurons ||
+            10000
+        );
+
+
+    const used =
+        Math.min(
+            limit,
+            Math.max(
+                0,
+                Number(
+                    usage.estimated_used_neurons ||
+                    0
+                )
+            )
+        );
+
+
+    const remaining =
+        Math.max(
+            0,
+            limit - used
+        );
+
+
+    const percentage =
+        limit > 0
+            ? Math.min(
+                100,
+                (used / limit) * 100
+            )
+            : 0;
+
+
+    const estimatedVideos =
+        usage.estimated_videos_remaining;
+
+
+    const average =
+        Number(
+            usage.average_neurons_per_video ||
+            0
+        );
+
+
+    const isBlocked =
+        quotaData.guard_blocked === true;
+
+
+    card.classList.toggle(
+        "quota-exhausted",
+        isBlocked ||
+        remaining <= 0
+    );
+
+
+    const usedElement =
+        document.getElementById(
+            "neuronUsed"
+        );
+
+
+    const remainingElement =
+        document.getElementById(
+            "neuronRemaining"
+        );
+
+
+    const estimatedElement =
+        document.getElementById(
+            "neuronEstimatedVideos"
+        );
+
+
+    const resetElement =
+        document.getElementById(
+            "neuronReset"
+        );
+
+
+    const averageElement =
+        document.getElementById(
+            "neuronAverage"
+        );
+
+
+    const progressElement =
+        document.getElementById(
+            "neuronProgress"
+        );
+
+
+    const statusElement =
+        document.getElementById(
+            "neuronStatus"
+        );
+
+
+    if (usedElement) {
+
+        usedElement.textContent =
+            formatNeuronNumber(
+                used
+            ) +
+            " / " +
+            formatNeuronNumber(
+                limit
+            ) +
+            " Neurons";
+
+    }
+
+
+    if (remainingElement) {
+
+        remainingElement.textContent =
+            "Remaining: " +
+            formatNeuronNumber(
+                remaining
+            ) +
+            " Neurons";
+
+    }
+
+
+    if (estimatedElement) {
+
+        estimatedElement.textContent =
+            estimatedVideos === null ||
+            estimatedVideos === undefined
+                ? "Estimated: — videos"
+                : "Estimated: ~" +
+                  formatNeuronNumber(
+                      estimatedVideos
+                  ) +
+                  " videos";
+
+    }
+
+
+    if (averageElement) {
+
+        averageElement.textContent =
+            average > 0
+                ? "Avg/video: ~" +
+                  formatNeuronNumber(
+                      average
+                  ) +
+                  " Neurons"
+                : "Avg/video: —";
+
+    }
+
+
+    if (resetElement) {
+
+        resetElement.textContent =
+            "Reset: " +
+            formatResetTime(
+                quotaData.next_reset_utc
+            );
+
+    }
+
+
+    if (progressElement) {
+
+        progressElement.style.width =
+            percentage.toFixed(1) +
+            "%";
+
+    }
+
+
+    if (statusElement) {
+
+        if (
+            isBlocked ||
+            remaining <= 0
+        ) {
+
+            statusElement.textContent =
+                "Quota exhausted — waiting for daily reset";
+
+        } else {
+
+            statusElement.textContent =
+                "Estimated usage • Cloudflare Free";
+
+        }
+
+    }
+
+}
+
+
+async function refreshNeuronMonitor() {
+
+    try {
+
+        const response =
+            await fetch(
+                QUOTA_STATUS_URL,
+                {
+                    method: "GET",
+                    cache: "no-store"
+                }
+            );
+
+
+        if (!response.ok) {
+            return;
+        }
+
+
+        const data =
+            await response.json();
+
+
+        if (
+            data &&
+            data.quota
+        ) {
+
+            renderNeuronMonitor(
+                data.quota
+            );
+
+        }
+
+    } catch (error) {
+
+        console.warn(
+            "Neuron monitor unavailable:",
+            error
+        );
+
+    }
+
+}
+
+
+window.addEventListener(
+    "DOMContentLoaded",
+    function () {
+
+        refreshNeuronMonitor();
+
+    }
+);
+
 window.addEventListener("DOMContentLoaded", function () {
 
     const analyzeButton =
@@ -419,6 +744,17 @@ async function analyzeVideo() {
             data =
                 JSON.parse(text);
 
+        if (
+            data &&
+            data.quota
+        ) {
+
+            renderNeuronMonitor(
+                data.quota
+            );
+
+        }
+           
         } catch (error) {
 
             console.error(
