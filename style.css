@@ -1243,52 +1243,37 @@ footer p {
 }
 
 /* ============================================================
-   WORKERS AI NEURON MONITOR
+   WORKERS AI NEURON MONITOR - COMPACT
    ============================================================ */
 
 .neuron-monitor {
     width: 285px;
+    max-width: 285px;
     box-sizing: border-box;
-    padding: 14px 16px;
+    padding: 10px 14px;
     border: 1px solid #dbe3ef;
-    border-radius: 12px;
+    border-radius: 10px;
     background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 8px 22px rgba(20, 50, 90, 0.08);
+    box-shadow: 0 6px 18px rgba(20, 50, 90, 0.06);
 }
 
 .neuron-monitor-title {
-    margin-bottom: 9px;
-    font-size: 13px;
+    margin-bottom: 6px;
+    font-size: 12px;
     font-weight: 700;
     color: #0b2f66;
 }
 
 .neuron-used {
-    margin-bottom: 8px;
-    font-size: 15px;
-    font-weight: 700;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 600;
     color: #102b52;
 }
 
-.neuron-progress-track {
-    width: 100%;
-    height: 7px;
-    margin-bottom: 11px;
-    overflow: hidden;
-    border-radius: 999px;
-    background: #e8edf5;
-}
-
-.neuron-progress-bar {
-    height: 100%;
-    border-radius: 999px;
-    background: #214b91;
-    transition: width 0.35s ease;
-}
-
 .neuron-detail {
-    margin-top: 4px;
-    font-size: 12px;
+    margin-top: 2px;
+    font-size: 11px;
     line-height: 1.35;
     color: #4f6687;
 }
@@ -1297,11 +1282,61 @@ footer p {
     color: #6b7d98;
 }
 
+
+/* ============================================================
+   HEADER PLACEMENT
+   ============================================================ */
+
+header.topbar {
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 30px;
+}
+
+header.topbar > .brand {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+header.topbar > .neuron-monitor {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    flex: 0 0 285px;
+    width: 285px;
+    max-width: 285px;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+
+/* ============================================================
+   HIDE UNNECESSARY INFORMATION
+   ============================================================ */
+
+.neuron-progress-track,
 .neuron-status {
-    margin-top: 8px;
-    font-size: 10px;
-    line-height: 1.3;
-    color: #8a98ad;
+    display: none !important;
+}
+
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 850px) {
+
+    header.topbar {
+        display: block !important;
+    }
+
+    header.topbar > .neuron-monitor {
+        width: 100%;
+        max-width: 285px;
+        margin-top: 12px;
+    }
+
 }
 
 
