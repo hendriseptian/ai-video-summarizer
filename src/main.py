@@ -5,6 +5,7 @@ import httpx2 as httpx
 
 import ast
 import asyncio
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
@@ -16,7 +17,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.4.2"
+    version="9.4.3"
 )
 
 
@@ -57,6 +58,20 @@ AI_MAX_TOKENS = 4200
 AI_RETRIES = 1
 
 TRANSCRIPT_RETRIES = 2
+
+# ============================================================
+# DAILY WORKERS AI QUOTA GUARD
+# ============================================================
+# Workers AI free allocation resets at 00:00 UTC.
+# This guard does NOT try to modify Cloudflare quota.
+# It prevents repeated 4006 requests during the same UTC day and
+# automatically becomes available again on the next UTC date.
+AI_QUOTA_GUARD = {
+    "blocked_date": None,
+    "last_error": "",
+    "last_model": "",
+    "blocked_at_utc": None
+}
 
 
 # ============================================================
@@ -1738,23 +1753,116 @@ def is_ai_quota_error(message):
     return any(marker in text for marker in markers)
 
 
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def utc_date_key(now=None):
+    now = now or utc_now()
+    return now.strftime("%Y-%m-%d")
+
+
+def next_quota_reset_utc(now=None):
+    now = now or utc_now()
+    next_day = (now + timedelta(days=1)).date()
+    return datetime(
+        next_day.year,
+        next_day.month,
+        next_day.day,
+        0,
+        0,
+        0,
+        tzinfo=timezone.utc
+    )
+
+
+def quota_reset_iso(now=None):
+    return next_quota_reset_utc(now).isoformat().replace("+00:00", "Z")
+
+
+def refresh_quota_guard():
+    """
+    Clear the local quota block automatically when the UTC date changes.
+
+    This is an application-side circuit breaker. Cloudflare remains the
+    authority for the real Workers AI quota.
+    """
+    today = utc_date_key()
+    blocked_date = AI_QUOTA_GUARD.get("blocked_date")
+
+    if blocked_date and blocked_date != today:
+        AI_QUOTA_GUARD["blocked_date"] = None
+        AI_QUOTA_GUARD["last_error"] = ""
+        AI_QUOTA_GUARD["last_model"] = ""
+        AI_QUOTA_GUARD["blocked_at_utc"] = None
+        return True
+
+    return False
+
+
+def is_quota_guard_blocked():
+    refresh_quota_guard()
+    return AI_QUOTA_GUARD.get("blocked_date") == utc_date_key()
+
+
+def set_quota_guard_block(model, message):
+    now = utc_now()
+    AI_QUOTA_GUARD["blocked_date"] = utc_date_key(now)
+    AI_QUOTA_GUARD["last_error"] = str(message)
+    AI_QUOTA_GUARD["last_model"] = str(model or "")
+    AI_QUOTA_GUARD["blocked_at_utc"] = now.isoformat().replace("+00:00", "Z")
+
+
+def quota_status():
+    now = utc_now()
+    refresh_quota_guard()
+    blocked = is_quota_guard_blocked()
+
+    return {
+        "status": "quota_exhausted" if blocked else "available_or_not_checked",
+        "daily_limit_neurons": 10000,
+        "timezone": "UTC",
+        "current_utc": now.isoformat().replace("+00:00", "Z"),
+        "next_reset_utc": quota_reset_iso(now),
+        "automatic_daily_reset": True,
+        "guard_blocked": blocked,
+        "blocked_date_utc": AI_QUOTA_GUARD.get("blocked_date"),
+        "last_model": AI_QUOTA_GUARD.get("last_model", ""),
+        "blocked_at_utc": AI_QUOTA_GUARD.get("blocked_at_utc"),
+        "last_error": AI_QUOTA_GUARD.get("last_error", "")
+    }
+
+
+class AIQuotaError(RuntimeError):
+    """Workers AI daily quota is unavailable for the current UTC day."""
+
+
 async def run_ai(
     system_prompt,
     user_prompt,
     max_tokens=AI_MAX_TOKENS
 ):
     """
-    Stable Workers AI runner.
+    Stable Workers AI runner with an automatic daily quota guard.
 
-    Primary model:
-        @cf/zai-org/glm-4.7-flash
+    Free Workers AI quota resets at 00:00 UTC. When Cloudflare returns
+    a quota/account-limit error, the guard blocks further AI calls for
+    the current UTC date. The guard is automatically cleared on the next
+    UTC date, so the first request after reset can try Workers AI again.
 
-    Fallback model:
-        @cf/meta/llama-3.1-8b-instruct-fast
-
-    Quota/account errors immediately move to the fallback model
-    instead of repeatedly retrying the same model.
+    Quota errors do NOT trigger the fallback model because both models
+    consume the same account-level Workers AI allocation. This avoids
+    wasting additional requests when the account is quota-limited.
     """
+
+    refresh_quota_guard()
+
+    if is_quota_guard_blocked():
+        raise AIQuotaError(
+            "Workers AI daily free quota is currently unavailable. "
+            "Automatic retry is enabled after the Cloudflare daily reset "
+            "at " + quota_reset_iso() + "."
+        )
 
     payload = {
         "messages": [
@@ -1801,9 +1909,16 @@ async def run_ai(
                     + message
                 )
 
-                # Do not waste retries on account/quota errors.
                 if is_ai_quota_error(message):
-                    break
+                    set_quota_guard_block(model, message)
+
+                    raise AIQuotaError(
+                        "Workers AI daily free quota is currently unavailable. "
+                        "Cloudflare returned a quota/account-limit error. "
+                        "Automatic retry is enabled after the daily reset at "
+                        + quota_reset_iso()
+                        + "."
+                    )
 
                 if attempt < AI_RETRIES:
                     await asyncio.sleep(
@@ -4368,6 +4483,21 @@ AGGREGATION DATA:
 
 
 # ============================================================
+# DAILY QUOTA STATUS
+# ============================================================
+
+@app.get("/quota-status")
+async def quota_status_endpoint():
+    return {
+        "version": "9.4.3",
+        "provider": "Cloudflare Workers AI",
+        "primary_model": AI_MODEL,
+        "fallback_model": AI_FALLBACK_MODEL,
+        "quota": quota_status()
+    }
+
+
+# ============================================================
 # AI DIAGNOSTIC TEST
 # ============================================================
 
@@ -4391,10 +4521,13 @@ async def ai_test():
                 "ok",
 
             "version":
-                "9.4.2",
+                "9.4.3",
 
             "ai":
                 parsed,
+
+            "quota":
+                quota_status(),
 
             "primary_model":
                 AI_MODEL,
@@ -4412,7 +4545,7 @@ async def ai_test():
                 "error",
 
             "version":
-                "9.4.2",
+                "9.4.3",
 
             "primary_model":
                 AI_MODEL,
@@ -4421,9 +4554,13 @@ async def ai_test():
                 AI_FALLBACK_MODEL,
 
             "quota_error":
-                is_ai_quota_error(
+                isinstance(error, AIQuotaError)
+                or is_ai_quota_error(
                     message
                 ),
+
+            "quota":
+                quota_status(),
 
             "error":
                 message
@@ -4445,7 +4582,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.4.2"
+            "9.4.3"
     }
 
 
@@ -4461,7 +4598,7 @@ async def health():
             "ok",
 
         "version":
-            "9.4.2"
+            "9.4.3"
     }
 
 
@@ -4713,6 +4850,17 @@ async def analyze(
             "validation_error",
             400
         )
+
+    except AIQuotaError as error:
+
+        return {
+            "status": "error",
+            "message": str(error),
+            "error": str(error),
+            "error_type": "ai_quota_exhausted",
+            "http_status": 429,
+            "quota": quota_status()
+        }
 
     except RuntimeError as error:
 
