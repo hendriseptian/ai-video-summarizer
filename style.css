@@ -1328,14 +1328,21 @@ footer p {
    HEADER PLACEMENT
    ============================================================ */
 
+
 header {
-    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 285px;
+    column-gap: 28px;
+    align-items: start;
 }
 
 header .neuron-monitor {
-    position: absolute;
-    top: 2px;
-    right: 0;
+    position: static;
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    width: 285px;
+    box-sizing: border-box;
+    align-self: start;
 }
 
 
