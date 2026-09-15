@@ -47,13 +47,19 @@ document.addEventListener(
             !emailInput ||
             !loginButton
         ) {
+
+            console.error(
+                "Login elements not found."
+            );
+
             return;
+
         }
 
 
-        /*
-         * Check existing login
-         */
+        /* ====================================================
+           LOAD PREVIOUS EMAIL
+           ==================================================== */
 
         const savedEmail =
             localStorage.getItem(
@@ -63,14 +69,20 @@ document.addEventListener(
 
         if (
             savedEmail &&
-            isValidEmail(savedEmail) &&
+            isValidEmail(
+                savedEmail
+            ) &&
             ALLOWED_EMAILS.includes(
-                savedEmail.toLowerCase()
+                savedEmail
+                    .trim()
+                    .toLowerCase()
             )
         ) {
 
             emailInput.value =
-                savedEmail;
+                savedEmail
+                    .trim()
+                    .toLowerCase();
 
         } else {
 
@@ -80,14 +92,20 @@ document.addEventListener(
 
         }
 
-        showLogin();
-
-        }
-
 
         /*
-         * Continue button
+         * ALWAYS SHOW LOGIN SCREEN
+         *
+         * Email may be remembered,
+         * but user must still click CONTINUE.
          */
+
+        showLogin();
+
+
+        /* ====================================================
+           CONTINUE BUTTON
+           ==================================================== */
 
         loginButton.addEventListener(
             "click",
@@ -98,6 +116,10 @@ document.addEventListener(
                         .trim()
                         .toLowerCase();
 
+
+                /* ==========================================
+                   VALID EMAIL
+                   ========================================== */
 
                 if (
                     !isValidEmail(
@@ -119,7 +141,16 @@ document.addEventListener(
 
                 }
 
-                if (!ALLOWED_EMAILS.includes(email)) {
+
+                /* ==========================================
+                   CHECK ALLOWED EMAIL
+                   ========================================== */
+
+                if (
+                    !ALLOWED_EMAILS.includes(
+                        email
+                    )
+                ) {
 
                     if (loginStatus) {
 
@@ -134,15 +165,21 @@ document.addEventListener(
                     return;
 
                 }
-                /*
-                 * Save email locally
-                 */
+
+
+                /* ==========================================
+                   SAVE EMAIL
+                   ========================================== */
 
                 localStorage.setItem(
                     LOGIN_STORAGE_KEY,
                     email
                 );
 
+
+                /* ==========================================
+                   LOGIN SUCCESS
+                   ========================================== */
 
                 if (loginStatus) {
 
@@ -161,9 +198,9 @@ document.addEventListener(
         );
 
 
-        /*
-         * Enter key
-         */
+        /* ====================================================
+           ENTER KEY
+           ==================================================== */
 
         emailInput.addEventListener(
             "keydown",
@@ -181,6 +218,10 @@ document.addEventListener(
         );
 
 
+        /* ====================================================
+           SHOW LOGIN
+           ==================================================== */
+
         function showLogin() {
 
             loginScreen.style.display =
@@ -188,6 +229,7 @@ document.addEventListener(
 
             appShell.style.display =
                 "none";
+
 
             setTimeout(
                 function () {
@@ -201,6 +243,10 @@ document.addEventListener(
         }
 
 
+        /* ====================================================
+           SHOW APPLICATION
+           ==================================================== */
+
         function showApplication() {
 
             loginScreen.style.display =
@@ -213,7 +259,6 @@ document.addEventListener(
 
     }
 );
-
 
 /* ============================================================
    EMAIL VALIDATION
