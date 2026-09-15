@@ -1141,3 +1141,97 @@ footer p {
         overflow: visible;
     }
 }
+
+/* ============================================================
+   LOGIN SCREEN
+   ============================================================ */
+
+.login-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+}
+
+
+.login-card {
+    width: 100%;
+    max-width: 430px;
+    padding: 40px;
+    box-sizing: border-box;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+
+.login-card h1 {
+    margin: 8px 0 10px;
+}
+
+
+.login-card p {
+    margin: 0 0 28px;
+}
+
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+
+.login-form label {
+    font-weight: 600;
+}
+
+
+.login-form input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 15px;
+    outline: none;
+}
+
+
+.login-form input:focus {
+    border-color: #6b7280;
+}
+
+
+.login-form .primary-btn {
+    margin-top: 8px;
+    width: 100%;
+}
+
+
+.login-status {
+    min-height: 20px;
+    font-size: 13px;
+}
+
+
+.login-status.error {
+    color: #dc2626;
+}
+
+
+.login-status.success {
+    color: #16a34a;
+}
+
+
+@media (max-width: 600px) {
+
+    .login-card {
+        padding: 28px 22px;
+    }
+
+}
