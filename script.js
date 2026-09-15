@@ -3593,7 +3593,79 @@ async function exportPDF() {
         pageWidth -
         margin * 2;
 
+    function addPDFFooter() {
 
+        const email =
+            sessionStorage.getItem(
+                LOGIN_STORAGE_KEY
+            ) || "-";
+
+        const pageHeight =
+            doc.internal.pageSize.getHeight();
+
+        const footerLineY =
+            pageHeight - 18;
+
+        const footerTextY =
+            pageHeight - 13;
+
+        doc.setDrawColor(
+            180,
+            180,
+            180
+        );
+
+        doc.setLineWidth(
+            0.2
+        );
+
+        doc.line(
+            margin,
+            footerLineY,
+            pageWidth - margin,
+            footerLineY
+        );
+
+        doc.setFont(
+            "helvetica",
+            "normal"
+        );
+
+        doc.setFontSize(
+            7
+        );
+
+        doc.setTextColor(
+            100,
+            100,
+            100
+        );
+
+        doc.text(
+            "AI Video Summarizer  •  CONFIDENTIAL",
+            margin,
+            footerTextY
+        );
+
+        doc.text(
+            "Generated for: " + email,
+            margin,
+            footerTextY + 4
+        );
+
+        doc.text(
+            "Developed & Maintained by Hendri Septian",
+            margin,
+            footerTextY + 8
+        );
+
+        doc.setTextColor(
+            0,
+            0,
+            0
+        );
+    }
+   
     function addPageIfNeeded(
         height = 8
     ) {
@@ -3605,7 +3677,7 @@ async function exportPDF() {
 
         if (
             y + height >
-            pageHeight - 15
+            pageHeight - 25
         ) {
 
             doc.addPage();
@@ -3974,6 +4046,7 @@ async function exportPDF() {
         }
     );
 
+    addPDFFooter();
 
     const filename =
         sanitizeFilename(
