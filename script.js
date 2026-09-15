@@ -56,7 +56,7 @@ document.addEventListener(
          */
 
         const savedEmail =
-            sessionStorage.getItem(
+            localStorage.getItem(
                 LOGIN_STORAGE_KEY
             );
 
@@ -64,10 +64,13 @@ document.addEventListener(
         if (
             savedEmail &&
             isValidEmail(savedEmail) &&
-            ALLOWED_EMAILS.includes(savedEmail.toLowerCase())
+            ALLOWED_EMAILS.includes(
+                savedEmail.toLowerCase()
+            )
         ) {
 
-            showApplication();
+            emailInput.value =
+                savedEmail;
 
         } else {
 
@@ -75,7 +78,9 @@ document.addEventListener(
                 LOGIN_STORAGE_KEY
             );
 
-            showLogin();
+        }
+
+        showLogin();
 
         }
 
@@ -133,7 +138,7 @@ document.addEventListener(
                  * Save email locally
                  */
 
-                sessionStorage.setItem(
+                localStorage.setItem(
                     LOGIN_STORAGE_KEY,
                     email
                 );
