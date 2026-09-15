@@ -1354,3 +1354,30 @@ header .neuron-monitor {
     }
 
 }
+
+/* ============================================================
+   NEURON MONITOR - FINAL HEADER POSITION
+   ============================================================ */
+
+header.topbar {
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 30px;
+}
+
+header.topbar > .brand {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+header.topbar > .neuron-monitor {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    flex: 0 0 285px;
+    width: 285px;
+    max-width: 285px;
+    margin: 0;
+    box-sizing: border-box;
+}
