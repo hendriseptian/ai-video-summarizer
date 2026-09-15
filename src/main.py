@@ -17,7 +17,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.4.3"
+    version="9.4.4"
 )
 
 
@@ -72,6 +72,9 @@ AI_QUOTA_GUARD = {
     "last_model": "",
     "blocked_at_utc": None
 }
+
+QUOTA_KV_KEY = "workers-ai-daily-quota-guard"
+
 
 
 # ============================================================
@@ -1780,13 +1783,55 @@ def quota_reset_iso(now=None):
     return next_quota_reset_utc(now).isoformat().replace("+00:00", "Z")
 
 
-def refresh_quota_guard():
-    """
-    Clear the local quota block automatically when the UTC date changes.
+async def load_quota_guard():
+    """Load persistent quota state from Cloudflare KV.
 
-    This is an application-side circuit breaker. Cloudflare remains the
-    authority for the real Workers AI quota.
+    KV is the persistent source for the application-side circuit breaker.
+    The actual Workers AI quota remains controlled by Cloudflare.
     """
+    try:
+        raw = await env.QUOTA_KV.get(QUOTA_KV_KEY)
+        if raw:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                AI_QUOTA_GUARD.update({
+                    "blocked_date": data.get("blocked_date"),
+                    "last_error": data.get("last_error", ""),
+                    "last_model": data.get("last_model", ""),
+                    "blocked_at_utc": data.get("blocked_at_utc")
+                })
+    except Exception:
+        # Keep the Worker functional if KV has a temporary read problem.
+        # Cloudflare remains the authority for the real AI quota.
+        pass
+
+
+async def save_quota_guard():
+    """Persist the current quota guard state to Cloudflare KV."""
+    data = {
+        "blocked_date": AI_QUOTA_GUARD.get("blocked_date"),
+        "last_error": AI_QUOTA_GUARD.get("last_error", ""),
+        "last_model": AI_QUOTA_GUARD.get("last_model", ""),
+        "blocked_at_utc": AI_QUOTA_GUARD.get("blocked_at_utc")
+    }
+
+    try:
+        await env.QUOTA_KV.put(
+            QUOTA_KV_KEY,
+            json.dumps(data),
+            expiration_ttl=172800
+        )
+    except Exception:
+        # The AI request result must not be hidden by a KV write failure.
+        pass
+
+
+async def refresh_quota_guard():
+    """
+    Load the persistent guard and clear it automatically when the UTC date changes.
+    """
+    await load_quota_guard()
+
     today = utc_date_key()
     blocked_date = AI_QUOTA_GUARD.get("blocked_date")
 
@@ -1795,28 +1840,30 @@ def refresh_quota_guard():
         AI_QUOTA_GUARD["last_error"] = ""
         AI_QUOTA_GUARD["last_model"] = ""
         AI_QUOTA_GUARD["blocked_at_utc"] = None
+        await save_quota_guard()
         return True
 
     return False
 
 
-def is_quota_guard_blocked():
-    refresh_quota_guard()
+async def is_quota_guard_blocked():
+    await refresh_quota_guard()
     return AI_QUOTA_GUARD.get("blocked_date") == utc_date_key()
 
 
-def set_quota_guard_block(model, message):
+async def set_quota_guard_block(model, message):
     now = utc_now()
     AI_QUOTA_GUARD["blocked_date"] = utc_date_key(now)
     AI_QUOTA_GUARD["last_error"] = str(message)
     AI_QUOTA_GUARD["last_model"] = str(model or "")
     AI_QUOTA_GUARD["blocked_at_utc"] = now.isoformat().replace("+00:00", "Z")
+    await save_quota_guard()
 
 
-def quota_status():
+async def quota_status():
     now = utc_now()
-    refresh_quota_guard()
-    blocked = is_quota_guard_blocked()
+    await refresh_quota_guard()
+    blocked = await is_quota_guard_blocked()
 
     return {
         "status": "quota_exhausted" if blocked else "available_or_not_checked",
@@ -1825,6 +1872,8 @@ def quota_status():
         "current_utc": now.isoformat().replace("+00:00", "Z"),
         "next_reset_utc": quota_reset_iso(now),
         "automatic_daily_reset": True,
+        "persistent_guard": True,
+        "storage": "Cloudflare Workers KV",
         "guard_blocked": blocked,
         "blocked_date_utc": AI_QUOTA_GUARD.get("blocked_date"),
         "last_model": AI_QUOTA_GUARD.get("last_model", ""),
@@ -1855,9 +1904,9 @@ async def run_ai(
     wasting additional requests when the account is quota-limited.
     """
 
-    refresh_quota_guard()
+    await refresh_quota_guard()
 
-    if is_quota_guard_blocked():
+    if await is_quota_guard_blocked():
         raise AIQuotaError(
             "Workers AI daily free quota is currently unavailable. "
             "Automatic retry is enabled after the Cloudflare daily reset "
@@ -1910,7 +1959,7 @@ async def run_ai(
                 )
 
                 if is_ai_quota_error(message):
-                    set_quota_guard_block(model, message)
+                    await set_quota_guard_block(model, message)
 
                     raise AIQuotaError(
                         "Workers AI daily free quota is currently unavailable. "
@@ -4489,11 +4538,11 @@ AGGREGATION DATA:
 @app.get("/quota-status")
 async def quota_status_endpoint():
     return {
-        "version": "9.4.3",
+        "version": "9.4.4",
         "provider": "Cloudflare Workers AI",
         "primary_model": AI_MODEL,
         "fallback_model": AI_FALLBACK_MODEL,
-        "quota": quota_status()
+        "quota": await quota_status()
     }
 
 
@@ -4527,7 +4576,7 @@ async def ai_test():
                 parsed,
 
             "quota":
-                quota_status(),
+                await quota_status(),
 
             "primary_model":
                 AI_MODEL,
@@ -4560,7 +4609,7 @@ async def ai_test():
                 ),
 
             "quota":
-                quota_status(),
+                await quota_status(),
 
             "error":
                 message
@@ -4859,7 +4908,7 @@ async def analyze(
             "error": str(error),
             "error_type": "ai_quota_exhausted",
             "http_status": 429,
-            "quota": quota_status()
+            "quota": await quota_status()
         }
 
     except RuntimeError as error:
