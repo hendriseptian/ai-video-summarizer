@@ -67,6 +67,12 @@ document.addEventListener(
             );
 
 
+        const sessionLoggedIn =
+            sessionStorage.getItem(
+                "ai_video_summarizer_logged_in"
+            );
+
+
         if (
             savedEmail &&
             isValidEmail(
@@ -93,14 +99,18 @@ document.addEventListener(
         }
 
 
-        /*
-         * ALWAYS SHOW LOGIN SCREEN
-         *
-         * Email may be remembered,
-         * but user must still click CONTINUE.
-         */
+        if (
+            sessionLoggedIn ===
+            "true"
+        ) {
 
-        showLogin();
+            showApplication();
+
+        } else {
+
+            showLogin();
+
+        }
 
 
         /* ====================================================
