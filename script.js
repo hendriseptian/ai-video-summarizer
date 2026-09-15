@@ -2720,95 +2720,136 @@ function getErrorMessage(
     status
 ) {
 
-    if (!data) {
+    /* --------------------------------------------------------
+       CLOUDFLARE WORKERS AI DAILY QUOTA
+       -------------------------------------------------------- */
+
+    if (
+        data &&
+        data.error_type ===
+            "ai_quota_exhausted"
+    ) {
+
+        const quota =
+            data.quota || {};
+
+        if (
+            quota.next_reset_utc
+        ) {
+
+            const resetDate =
+                new Date(
+                    quota.next_reset_utc
+                );
+
+            const localReset =
+                resetDate.toLocaleString(
+                    undefined,
+                    {
+                        dateStyle: "medium",
+                        timeStyle: "short"
+                    }
+                );
+
+            return (
+                "AI quota sementara habis. " +
+                "Sistem akan otomatis mencoba kembali setelah reset Cloudflare pada " +
+                localReset +
+                "."
+            );
+
+        }
 
         return (
-            "Request failed (HTTP " +
-            status +
-            ")."
+            "AI quota sementara habis. " +
+            "Sistem akan otomatis mencoba kembali setelah reset harian Cloudflare."
         );
 
     }
 
 
+    /* --------------------------------------------------------
+       CLOUDFLARE QUOTA ERROR DIRECT
+       -------------------------------------------------------- */
+
+    const rawError =
+        data &&
+        (
+            data.error ||
+            data.detail ||
+            data.message ||
+            ""
+        );
+
+
+    const errorText =
+        String(
+            rawError
+        ).toLowerCase();
+
+
     if (
-        typeof data ===
-            "string"
+        errorText.includes("4006") ||
+        errorText.includes("3036") ||
+        errorText.includes("10,000 neurons") ||
+        errorText.includes("10000 neurons") ||
+        errorText.includes("daily free allocation") ||
+        errorText.includes("account limited")
     ) {
 
-        return data;
+        return (
+            "AI quota Cloudflare sedang mencapai batas harian. " +
+            "Aplikasi akan menunggu reset quota harian Cloudflare " +
+            "dan dapat digunakan kembali setelah reset."
+        );
 
     }
 
 
-    const candidates = [
+    /* --------------------------------------------------------
+       STANDARD SERVER ERROR
+       -------------------------------------------------------- */
 
-        data.detail,
-
-        data.message,
-
-        data.error,
-
-        data.error_message,
-
-        data.reason,
-
-        data.status_message
-
-    ];
-
-
-    for (
-        const candidate of
-            candidates
+    if (
+        data &&
+        typeof data.detail ===
+            "string"
     ) {
 
-        if (
-            typeof candidate ===
-                "string" &&
-            candidate.trim()
-        ) {
+        return data.detail;
 
-            return candidate.trim();
-
-        }
+    }
 
 
-        if (
-            candidate &&
-            typeof candidate ===
-                "object"
-        ) {
+    if (
+        data &&
+        typeof data.error ===
+            "string"
+    ) {
 
-            const nested =
-                candidate.message ||
-                candidate.detail ||
-                candidate.error;
+        return data.error;
+
+    }
 
 
-            if (
-                nested &&
-                typeof nested ===
-                    "string"
-            ) {
+    if (
+        data &&
+        typeof data.message ===
+            "string"
+    ) {
 
-                return nested;
-
-            }
-
-        }
+        return data.message;
 
     }
 
 
     return (
-        "Request failed (HTTP " +
+        "Server error (" +
         status +
         ")."
     );
 
 }
-
 
 /* ============================================================
    ESCAPE HTML
