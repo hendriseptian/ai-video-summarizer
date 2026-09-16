@@ -3081,7 +3081,7 @@ function exportPDF() {
         );
 
         pdf.text(
-            "Made with ❤️ for Tyas Oktaviana",
+            "AI Video Summarizer • Made with ❤️ for Tyas Oktaviana",
             105,
             285,
             {
