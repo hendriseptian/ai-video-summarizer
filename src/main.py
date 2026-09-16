@@ -15,7 +15,7 @@ import re
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.3.0"
+    version="9.3.1"
 )
 
 
@@ -394,37 +394,26 @@ Identify the people, government agencies, OPDs, institutions,
 organizations, communities, or other actors who are actually
 mentioned in the transcript and receive significant attention.
 
-IMPORTANT: When the transcript states that a person attended,
-was present, opened, led, spoke at, represented, or participated
-in the event, identify that person by NAME and OFFICIAL TITLE
-whenever both are explicitly available in the transcript.
+IMPORTANT: For highlighted_actors, return ONLY the person's FULL NAME.
+Do NOT include official title, position, institution, OPD, attendance,
+role, action, explanation, or evidence.
 
-Each highlighted_actors item MUST be a single concise string using
-this format:
+Each highlighted_actors item MUST be a concise full name string:
 
-"Full Name — Official Title/Position — Attendance or Role/Action"
+"Full Name"
 
-Examples:
-- "Ahmad Example — Governor of Central Java — attended the opening ceremony"
-- "Budi Example — Minister of Religious Affairs — attended and delivered remarks"
+Rules:
+- Use ONLY names explicitly stated in the transcript.
+- NEVER guess a name from a title, institution, or outside knowledge.
+- Include only people who are relevant to the reporting and receive
+  significant attention.
+- Prefer actual attendees/participants when explicitly identified.
+- Deduplicate the same person.
+- If no person's name is explicitly stated, return an empty array.
+- Do NOT include institutions or OPDs as actor entries.
+- Keep the list concise; normally return no more than 8 names.
 
-If the person's name is NOT stated in the transcript, DO NOT guess
-or use outside knowledge. Instead write:
-
-"Official Title — name not stated in transcript — attendance/role"
-
-If only an institution or OPD is mentioned, identify the institution
-and its role without inventing a person.
-
-Distinguish between:
-- people who actually attended or participated,
-- people merely mentioned as context, and
-- institutions/OPDs involved.
-
-Prioritize actual attendees/participants when the transcript provides
-that information.
-
-Only include actors supported by the transcript.
+This field is intentionally name-only to minimize AI output and neuron usage.
 
 3. PEMPROV JAWA TENGAH POSITION
 
@@ -3483,19 +3472,9 @@ async def build_consistent_analysis(
         master_en
     )
 
-    # Run a dedicated factual actor extraction pass. This prevents the
-    # broader media-analysis model from collapsing named attendees into
-    # generic bullets such as "attended the opening ceremony".
-    if actor_source:
-        extracted_actors = await extract_highlighted_actors(
-            actor_source
-        )
-
-        if extracted_actors:
-            master_en.setdefault(
-                "media_analysis",
-                {}
-            )["highlighted_actors"] = extracted_actors
+    # Actor extraction is handled inside the master analysis prompt.
+    # No separate AI call is used here so actor names do not consume
+    # additional input/output neurons.
 
     id_block = await translate_master_to_indonesian(
         master_en
