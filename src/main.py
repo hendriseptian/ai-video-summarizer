@@ -390,30 +390,42 @@ Do not force an angle that is not supported.
 
 2. HIGHLIGHTED ACTORS / ATTENDANCE
 
-Identify the people, government agencies, OPDs, institutions,
-organizations, communities, or other actors who are actually
+Identify the most relevant people, government agencies, OPDs,
+institutions, organizations, or other actors that are explicitly
 mentioned in the transcript and receive significant attention.
 
-IMPORTANT: For highlighted_actors, return ONLY the person's FULL NAME.
-Do NOT include official title, position, institution, OPD, attendance,
-role, action, explanation, or evidence.
+IMPORTANT: The actor entry must identify WHO is involved. Do NOT return
+generic actions such as "Menghadiri acara", "Attended the event",
+"Memimpin acara", or similar action-only phrases.
 
-Each highlighted_actors item MUST be a concise full name string:
-
-"Full Name"
-
+For each actor, return ONE concise identity label only:
+- If a person's FULL NAME is explicitly stated, use the full name.
+- If only an official title is stated, use the official title, e.g.
+  "Gubernur Jawa Tengah".
+- If an institution/agency is explicitly stated, use the institution,
+  e.g. "Polda Jawa Tengah".
+- If both a person name and institution are explicitly stated, prefer the
+  person's full name because it is the most specific identity.
 Rules:
-- Use ONLY names explicitly stated in the transcript.
-- NEVER guess a name from a title, institution, or outside knowledge.
-- Include only people who are relevant to the reporting and receive
-  significant attention.
-- Prefer actual attendees/participants when explicitly identified.
-- Deduplicate the same person.
-- If no person's name is explicitly stated, return an empty array.
-- Do NOT include institutions or OPDs as actor entries.
-- Keep the list concise; normally return no more than 8 names.
+- Use ONLY information explicitly present in the transcript.
+- NEVER guess or infer a person's name from a title or institution.
+- NEVER use outside knowledge.
+- Include only actors relevant to the reporting.
+- Prefer actual attendees/participants and people or institutions
+  receiving substantial attention.
+- Deduplicate equivalent entries.
+- Do NOT include the actor's action, attendance, explanation, or evidence.
+- Reject action-only outputs.
+- Keep the list concise; normally return no more than 8 actors.
+- If no supported actor identity can be extracted, return an empty array.
 
-This field is intentionally name-only to minimize AI output and neuron usage.
+Examples of VALID outputs:
+["Ahmad Luthfi", "Gubernur Jawa Tengah", "Polda Jawa Tengah"]
+
+Examples of INVALID outputs:
+["Menghadiri acara", "Menghadiri acara pembukaan", "Memimpin acara"]
+
+This field is intentionally concise to minimize AI output and neuron usage.
 
 3. PEMPROV JAWA TENGAH POSITION
 
@@ -2212,14 +2224,49 @@ def normalize_media_analysis(value):
     if not isinstance(value, dict):
         value = {}
 
+    raw_actors = normalize_list(
+        value.get("highlighted_actors", [])
+    )
+
+    # Reject generic action-only outputs. Actor entries must identify
+    # a person, title, institution, or organization.
+    generic_actor_patterns = [
+        r"^menghadiri\b",
+        r"^hadir\b",
+        r"^attended\b",
+        r"^participated\b",
+        r"^mengikuti\b",
+        r"^memimpin\b",
+        r"^membuka\b",
+        r"^memberikan sambutan\b",
+        r"^delivered remarks\b",
+        r"^opened the event\b",
+        r"^led the event\b"
+    ]
+
+    filtered_actors = []
+    seen_actor = set()
+
+    for actor in raw_actors:
+        actor_text = normalize_text(actor)
+        if not actor_text:
+            continue
+
+        lowered = actor_text.lower().strip()
+        if any(re.search(pattern, lowered) for pattern in generic_actor_patterns):
+            continue
+
+        key = lowered
+        if key not in seen_actor:
+            seen_actor.add(key)
+            filtered_actors.append(actor_text)
+
     return {
         "news_angle": normalize_text(
             value.get("news_angle", "")
         ),
 
-        "highlighted_actors": normalize_list(
-            value.get("highlighted_actors", [])
-        ),
+        "highlighted_actors": filtered_actors[:8],
 
         "pemprov_jateng_position": normalize_text(
             value.get(
