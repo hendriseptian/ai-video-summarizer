@@ -18,7 +18,7 @@ from contextvars import ContextVar
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.6.0"
+    version="9.6.1"
 )
 
 
@@ -1162,6 +1162,9 @@ The Indonesian version must be a faithful translation of the master,
 not a new interpretation.
 
 Return ONLY valid JSON.
+The top-level JSON object MUST contain exactly one key named "id".
+The value of "id" MUST be a JSON object containing the translated analysis fields.
+Do not return an array, string, markdown, or explanatory text.
 
 OUTPUT:
 {
@@ -3897,10 +3900,23 @@ MASTER ENGLISH ANALYSIS:
                 max_tokens
             )
 
-            id_block = parsed.get(
-                "id",
-                parsed
-            )
+            # Accept the expected {"id": {...}} shape, but also tolerate
+            # models that return the language block directly or wrap it in
+            # a common analysis/translation key. This prevents an unnecessary
+            # second AI call when the translation content itself is valid.
+            id_block = None
+
+            if isinstance(parsed, dict):
+                candidate = parsed.get("id")
+
+                if isinstance(candidate, dict):
+                    id_block = candidate
+                elif isinstance(parsed.get("analysis"), dict):
+                    id_block = parsed.get("analysis")
+                elif isinstance(parsed.get("translation"), dict):
+                    id_block = parsed.get("translation")
+                elif "summary" in parsed:
+                    id_block = parsed
 
             if not isinstance(id_block, dict):
                 raise ValueError(
@@ -4890,7 +4906,7 @@ AGGREGATION DATA:
 @app.get("/quota-status")
 async def quota_status_endpoint():
     return {
-        "version": "9.6.0",
+        "version": "9.6.1",
         "provider": "Cloudflare Workers AI",
         "primary_model": AI_MODEL,
         "fallback_model": AI_FALLBACK_MODEL,
@@ -4922,7 +4938,7 @@ async def ai_test():
                 "ok",
 
             "version":
-                "9.6.0",
+                "9.6.1",
 
             "ai":
                 parsed,
@@ -4946,7 +4962,7 @@ async def ai_test():
                 "error",
 
             "version":
-                "9.6.0",
+                "9.6.1",
 
             "primary_model":
                 AI_MODEL,
@@ -4983,7 +4999,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.6.0"
+            "9.6.1"
     }
 
 
@@ -4999,7 +5015,7 @@ async def health():
             "ok",
 
         "version":
-            "9.6.0"
+            "9.6.1"
     }
 
 
@@ -5330,10 +5346,3 @@ async def analyze(
             "server_error",
             500
         )
-
-
-# ============================================================
-# CLOUDFLARE ASGI
-# ============================================================
-
-Default = asgi.entrypoint(app)
