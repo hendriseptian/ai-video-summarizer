@@ -3081,7 +3081,7 @@ function exportPDF() {
         );
 
         pdf.text(
-            "AI Video Summarizer • CONFIDENTIAL",
+            "Made with ❤️ for Tyas Oktaviana",
             105,
             285,
             {
