@@ -351,59 +351,90 @@ async function analyzeVideo() {
 
     try {
 
-        const response =
+        /* ROBUST REQUEST */
+        let response =
             await fetch(
                 API_URL,
                 {
                     method: "POST",
-
+                    cache: "no-store",
                     headers: {
                         "Content-Type":
-                            "application/json"
+                            "application/json",
+                        "Cache-Control":
+                            "no-cache"
                     },
-
                     body: JSON.stringify({
                         url: url
                     })
                 }
             );
 
-
-        const text =
+        let text =
             await response.text();
-
 
         let data;
 
-
         try {
-
-            data =
-                JSON.parse(text);
-
+            data = JSON.parse(text);
         } catch (error) {
-
-            console.error(
-                "Server response:",
-                text
-            );
-
-            throw new Error(
-                "Server returned invalid JSON."
-            );
-
+            console.error("Server response:", text);
+            throw new Error("Server returned invalid JSON.");
         }
 
-
         if (!response.ok) {
-
             throw new Error(
-                getErrorMessage(
-                    data,
-                    response.status
-                )
+                getErrorMessage(data, response.status)
+            );
+        }
+
+        /* Detect AI before committing the response. */
+        let detectedAIRoot =
+            findAIRoot(data);
+
+        /* One retry only when HTTP succeeded but AI is missing. */
+        if (!detectedAIRoot) {
+
+            console.warn(
+                "AI payload not detected. Retrying analysis once..."
             );
 
+            response =
+                await fetch(
+                    API_URL,
+                    {
+                        method: "POST",
+                        cache: "no-store",
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+                            "Cache-Control":
+                                "no-cache"
+                        },
+                        body: JSON.stringify({
+                            url: url
+                        })
+                    }
+                );
+
+            text = await response.text();
+
+            try {
+                data = JSON.parse(text);
+            } catch (error) {
+                console.error("Retry server response:", text);
+                throw new Error(
+                    "Server returned invalid JSON after retry."
+                );
+            }
+
+            if (!response.ok) {
+                throw new Error(
+                    getErrorMessage(data, response.status)
+                );
+            }
+
+            detectedAIRoot = findAIRoot(data);
         }
 
 
@@ -411,25 +442,22 @@ async function analyzeVideo() {
            SAVE RESPONSE
            ---------------------------------------------------- */
 
-        currentData =
-            data;
-
-
-        currentAIRoot =
-            findAIRoot(data);
-
+        currentData = data;
+        currentAIRoot = detectedAIRoot;
 
         if (!currentAIRoot) {
-
             console.error(
-                "AI data not found:",
-                data
+                "AI data not found after retry:",
+                {
+                    status: response.status,
+                    response: data,
+                    videoUrl: url
+                }
             );
 
             throw new Error(
-                "AI analysis result was not found in server response."
+                "Server returned a successful response, but no AI analysis data was found after one retry."
             );
-
         }
 
 
@@ -552,6 +580,20 @@ function findAIRoot(data) {
     }
 
 
+    /* Recover AI when a proxy/deployment serialized it as JSON text. */
+    if (typeof data === "string") {
+        const trimmed = data.trim();
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            try {
+                return findAIRoot(JSON.parse(trimmed));
+            } catch (error) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+
     /*
      * Main V2 response:
      *
@@ -566,23 +608,25 @@ function findAIRoot(data) {
      * }
      */
 
-    if (
-        data.ai &&
-        typeof data.ai === "object"
-    ) {
-
-        return data.ai;
-
+    if (data.ai) {
+        const aiRoot =
+            typeof data.ai === "string"
+                ? findAIRoot(data.ai)
+                : data.ai;
+        if (aiRoot) {
+            return aiRoot;
+        }
     }
 
 
-    if (
-        data.analysis &&
-        typeof data.analysis === "object"
-    ) {
-
-        return data.analysis;
-
+    if (data.analysis) {
+        const analysisRoot =
+            typeof data.analysis === "string"
+                ? findAIRoot(data.analysis)
+                : data.analysis;
+        if (analysisRoot) {
+            return analysisRoot;
+        }
     }
 
 
@@ -608,13 +652,14 @@ function findAIRoot(data) {
     }
 
 
-    if (
-        data.ai_result &&
-        typeof data.ai_result === "object"
-    ) {
-
-        return data.ai_result;
-
+    if (data.ai_result) {
+        const aiResultRoot =
+            typeof data.ai_result === "string"
+                ? findAIRoot(data.ai_result)
+                : data.ai_result;
+        if (aiResultRoot) {
+            return aiResultRoot;
+        }
     }
 
 
@@ -3004,92 +3049,6 @@ function exportPDF() {
 
         }
     );
-
-
-    /* --------------------------------------------------------
-       PDF FOOTER WATERMARK
-       Applied to every page after all content is generated.
-       This does not change the analysis data or consume AI
-       neurons because it is handled entirely in the browser.
-       -------------------------------------------------------- */
-
-    const totalPages =
-        pdf.internal.getNumberOfPages();
-
-    for (
-        let pageNumber = 1;
-        pageNumber <= totalPages;
-        pageNumber++
-    ) {
-
-        pdf.setPage(
-            pageNumber
-        );
-
-        const pageWidth =
-            pdf.internal.pageSize.getWidth();
-
-        const pageHeight =
-            pdf.internal.pageSize.getHeight();
-
-        /* Footer watermark */
-        pdf.setDrawColor(
-            205,
-            205,
-            205
-        );
-
-        pdf.setLineWidth(
-            0.3
-        );
-
-        pdf.line(
-            15,
-            pageHeight - 20,
-            pageWidth - 15,
-            pageHeight - 20
-        );
-
-        pdf.setTextColor(
-            110,
-            110,
-            110
-        );
-
-        pdf.setFont(
-            "helvetica",
-            "normal"
-        );
-
-        pdf.setFontSize(
-            7.5
-        );
-
-        pdf.text(
-            "AI Video Summarizer  •  CONFIDENTIAL",
-            pageWidth / 2,
-            pageHeight - 14,
-            {
-                align: "center"
-            }
-        );
-
-        pdf.text(
-            "Developed & Maintained by Hendri Septian",
-            pageWidth / 2,
-            pageHeight - 9.5,
-            {
-                align: "center"
-            }
-        );
-
-        pdf.setTextColor(
-            0,
-            0,
-            0
-        );
-
-    }
 
 
     pdf.save(
