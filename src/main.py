@@ -18,7 +18,7 @@ from contextvars import ContextVar
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.5.0"
+    version="9.6.0"
 )
 
 
@@ -55,6 +55,12 @@ MAX_FINAL_CONTEXT_CHARS = 85000
 AI_TIMEOUT = 90.0
 
 AI_MAX_TOKENS = 4200
+
+# Fast path for short videos. Short transcripts avoid the optional
+# actor-evidence extraction pass and use smaller AI outputs.
+FAST_PATH_MAX_CHARS = 30000
+FAST_AI_MAX_TOKENS = 3000
+FAST_TRANSLATION_MAX_TOKENS = 3000
 
 AI_RETRIES = 1
 
@@ -3844,7 +3850,8 @@ async def fetch_transcript(
 # ============================================================
 
 async def translate_master_to_indonesian(
-    master_en
+    master_en,
+    max_tokens=4200
 ):
 
     if not isinstance(master_en, dict):
@@ -3887,7 +3894,7 @@ MASTER ENGLISH ANALYSIS:
             parsed = await run_ai_json(
                 INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
                 prompt,
-                4200
+                max_tokens
             )
 
             id_block = parsed.get(
@@ -4155,7 +4162,8 @@ def validate_indonesian_translation(
 
 async def build_consistent_analysis(
     master_result,
-    actor_source=None
+    actor_source=None,
+    fast_path=False
 ):
 
     if not isinstance(master_result, dict):
@@ -4181,7 +4189,7 @@ async def build_consistent_analysis(
     # does not already contain useful named actors/evidence. This reduces
     # latency and failure points for normal short videos while preserving
     # the dedicated extractor as a fallback for difficult transcripts.
-    if actor_source:
+    if actor_source and not fast_path:
         media = master_en.get("media_analysis", {})
         if not isinstance(media, dict):
             media = {}
@@ -4208,7 +4216,8 @@ async def build_consistent_analysis(
                 pass
 
     id_block = await translate_master_to_indonesian(
-        master_en
+        master_en,
+        FAST_TRANSLATION_MAX_TOKENS if fast_path else 4200
     )
 
     validate_indonesian_translation(
@@ -4345,9 +4354,69 @@ async def analyze_transcript(
     transcript_text
 ):
 
-    if len(
+    transcript_length = len(
         transcript_text
-    ) <= MAX_SINGLE_PASS_CHARS:
+    )
+
+    # --------------------------------------------------------
+    # FAST PATH
+    # --------------------------------------------------------
+    # Short videos normally do not need chunk extraction or the
+    # dedicated actor-evidence fallback. The master analysis already
+    # asks the model to return actors/evidence when supported.
+    # This reduces the common short-video path from up to 3 AI calls
+    # to 2: one master analysis + one Indonesian translation.
+    if transcript_length <= FAST_PATH_MAX_CHARS:
+
+        prompt = """
+Create the final professional video analysis from
+the following transcript.
+
+FAST ANALYSIS MODE:
+- This is a short transcript.
+- Use the supplied transcript directly.
+- Do not perform chunk analysis.
+- Do not create a second analysis pass.
+- Keep the analysis concise while preserving the required JSON structure.
+- Provide only source-supported facts and reasonable connected inferences.
+- Every analytical inference MUST begin with "Inference:".
+
+IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
+The Indonesian version is generated separately by a translation step.
+Do not produce an Indonesian analysis in this call.
+
+Use ALL relevant information.
+
+Follow the required JSON structure.
+
+Return ONLY valid JSON.
+
+TRANSCRIPT:
+
+""" + transcript_text
+
+        result = await run_ai_json(
+            MASTER_SYSTEM_PROMPT,
+            prompt,
+            FAST_AI_MAX_TOKENS
+        )
+
+        analysis = await build_consistent_analysis(
+            result,
+            actor_source=None,
+            fast_path=True
+        )
+
+        return (
+            analysis,
+            "fast_single_pass",
+            1
+        )
+
+    # --------------------------------------------------------
+    # STANDARD SINGLE PASS
+    # --------------------------------------------------------
+    if transcript_length <= MAX_SINGLE_PASS_CHARS:
 
         prompt = """
 Create the final professional video analysis from
@@ -4377,12 +4446,13 @@ TRANSCRIPT:
         result = await run_ai_json(
             MASTER_SYSTEM_PROMPT,
             prompt,
-            4200
+            AI_MAX_TOKENS
         )
 
         analysis = await build_consistent_analysis(
             result,
-            actor_source=transcript_text
+            actor_source=transcript_text,
+            fast_path=False
         )
 
         return (
@@ -4820,7 +4890,7 @@ AGGREGATION DATA:
 @app.get("/quota-status")
 async def quota_status_endpoint():
     return {
-        "version": "9.5.0",
+        "version": "9.6.0",
         "provider": "Cloudflare Workers AI",
         "primary_model": AI_MODEL,
         "fallback_model": AI_FALLBACK_MODEL,
@@ -4852,7 +4922,7 @@ async def ai_test():
                 "ok",
 
             "version":
-                "9.5.0",
+                "9.6.0",
 
             "ai":
                 parsed,
@@ -4876,7 +4946,7 @@ async def ai_test():
                 "error",
 
             "version":
-                "9.5.0",
+                "9.6.0",
 
             "primary_model":
                 AI_MODEL,
@@ -4913,7 +4983,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.5.0"
+            "9.6.0"
     }
 
 
@@ -4929,7 +4999,7 @@ async def health():
             "ok",
 
         "version":
-            "9.5.0"
+            "9.6.0"
     }
 
 
