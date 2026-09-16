@@ -23,90 +23,19 @@
 <body>
 
 
-<!-- ======================================================
-     LOGIN SCREEN
-     ====================================================== -->
-
-<div
-    id="loginScreen"
-    class="login-screen"
->
-
-    <div class="login-card">
-
-        <div class="eyebrow">
-            AI VIDEO SUMMARIZER
-        </div>
-
-        <h1>
-            AI Video Summarizer
-        </h1>
-
-        <p>
-            Enter your email to continue
-        </p>
+<div class="app-shell">
 
 
-        <div class="login-form">
-
-            <label for="emailInput">
-                Email
-            </label>
-
-            <input
-                type="email"
-                id="emailInput"
-                placeholder="nama@email.com"
-                autocomplete="email"
-            >
-
-            <div
-                id="loginStatus"
-                class="login-status"
-            ></div>
-
-            <button
-                id="loginButton"
-                class="primary-btn"
-                type="button"
-            >
-                CONTINUE
-            </button>
-
-        </div>
-
-    </div>
-
-</div>
-
-
-
-<!-- ======================================================
-     MAIN APPLICATION
-     ====================================================== -->
-
-<div
-    id="appShell"
-    class="app-shell"
-    style="display: none;"
->
-
-
-    <!-- ==================================================
+    <!-- ======================================================
          HEADER
-         ================================================== -->
+         ====================================================== -->
 
     <header class="topbar">
-
-
-        <!-- ==================================================
-             BRAND
-             ================================================== -->
 
         <div class="brand">
 
             <div class="eyebrow">
-                AI VIDEO INTELLIGENCE
+                AI VIDEO SUMMARIZER
             </div>
 
             <h1>
@@ -114,94 +43,17 @@
             </h1>
 
             <p>
-                Transform online videos into structured insights
+                Analyze and summarize online videos with AI
             </p>
 
         </div>
 
-
-        <!-- ==================================================
-             WORKERS AI NEURON MONITOR
-             ================================================== -->
-
-        <div
-            id="neuronMonitor"
-            class="neuron-monitor"
-        >
-
-            <div class="neuron-monitor-title">
-                Workers AI Usage
-            </div>
-
-
-            <div
-                id="neuronUsed"
-                class="neuron-used"
-            >
-                — / 10,000 Neurons
-            </div>
-
-
-            <div class="neuron-progress-track">
-
-                <div
-                    id="neuronProgress"
-                    class="neuron-progress-bar"
-                    style="width: 0%;"
-                ></div>
-
-            </div>
-
-
-            <div
-                id="neuronRemaining"
-                class="neuron-detail"
-            >
-                Remaining: — Neurons
-            </div>
-
-
-            <div
-                id="neuronEstimatedVideos"
-                class="neuron-detail"
-            >
-                Estimated: — videos
-            </div>
-
-
-            <div
-                id="neuronAverage"
-                class="neuron-detail neuron-average"
-            >
-                Avg/video: —
-            </div>
-
-
-            <div
-                id="neuronReset"
-                class="neuron-detail"
-            >
-                Reset: —
-            </div>
-
-
-            <div
-                id="neuronStatus"
-                class="neuron-status"
-            >
-                Estimated usage • Cloudflare Free
-            </div>
-
-        </div>
-
-
     </header>
 
 
-
-    <!-- ==================================================
+    <!-- ======================================================
          MAIN
-         ================================================== -->
+         ====================================================== -->
 
     <main>
 
@@ -246,7 +98,6 @@
         </section>
 
 
-
         <!-- ==================================================
              VIDEO INFORMATION
              ================================================== -->
@@ -272,7 +123,6 @@
         </section>
 
 
-
         <!-- ==================================================
              AI RESULT
              ================================================== -->
@@ -281,7 +131,6 @@
             id="aiResult"
             aria-live="polite"
         ></section>
-
 
 
         <!-- ==================================================
@@ -309,26 +158,20 @@
     </main>
 
 
+    <!-- ======================================================
+         FOOTER
+         ====================================================== -->
 
-<!-- ======================================================
-     FOOTER
-     ====================================================== -->
+    <footer>
 
-<footer>
+        <p>
+            AI Video Summarizer — V2
+        </p>
 
-    <p>
-        AI Video Summarizer — V2
-    </p>
-
-    <p class="developer-credit">
-        Developed &amp; Maintained by Hendri Septian
-    </p>
-
-</footer>
+    </footer>
 
 
 </div>
-
 
 
 <!-- ==========================================================
@@ -338,7 +181,6 @@
 <script
     src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
-
 
 
 <!-- ==========================================================
