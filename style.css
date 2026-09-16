@@ -930,17 +930,33 @@ button {
    ============================================================ */
 
 footer {
-    padding: 18px 0 4px;
+    padding: 18px 0 8px;
 
     text-align: center;
 }
 
 footer p {
     margin: 0;
+}
 
+.footer-brand {
     font-size: 10px;
-
     color: #98a2b3;
+}
+
+.footer-watermark {
+    margin-top: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: #a0a9b8;
+    text-transform: uppercase;
+}
+
+.footer-developer {
+    margin-top: 2px;
+    font-size: 9px;
+    color: #b0b8c5;
 }
 
 /* ============================================================
