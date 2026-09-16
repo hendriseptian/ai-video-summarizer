@@ -3006,6 +3006,125 @@ function exportPDF() {
     );
 
 
+    /* --------------------------------------------------------
+       PDF WATERMARK / FOOTER
+       Applied to every page after all content is generated.
+       This does not change the analysis data or consume AI
+       neurons because it is handled entirely in the browser.
+       -------------------------------------------------------- */
+
+    const totalPages =
+        pdf.internal.getNumberOfPages();
+
+    for (
+        let pageNumber = 1;
+        pageNumber <= totalPages;
+        pageNumber++
+    ) {
+
+        pdf.setPage(
+            pageNumber
+        );
+
+        const pageWidth =
+            pdf.internal.pageSize.getWidth();
+
+        const pageHeight =
+            pdf.internal.pageSize.getHeight();
+
+        /* Light CONFIDENTIAL watermark */
+        pdf.saveGraphicsState();
+
+        pdf.setTextColor(
+            225,
+            225,
+            225
+        );
+
+        pdf.setFont(
+            "helvetica",
+            "bold"
+        );
+
+        pdf.setFontSize(
+            28
+        );
+
+        pdf.text(
+            "CONFIDENTIAL",
+            pageWidth / 2,
+            pageHeight / 2,
+            {
+                align: "center",
+                angle: 45
+            }
+        );
+
+        pdf.restoreGraphicsState();
+
+        /* Footer watermark */
+        pdf.setDrawColor(
+            205,
+            205,
+            205
+        );
+
+        pdf.setLineWidth(
+            0.3
+        );
+
+        pdf.line(
+            15,
+            pageHeight - 20,
+            pageWidth - 15,
+            pageHeight - 20
+        );
+
+        pdf.setTextColor(
+            110,
+            110,
+            110
+        );
+
+        pdf.setFont(
+            "helvetica",
+            "normal"
+        );
+
+        pdf.setFontSize(
+            7.5
+        );
+
+        pdf.text(
+            "AI Video Summarizer  •  CONFIDENTIAL",
+            15,
+            pageHeight - 14
+        );
+
+        pdf.text(
+            "Generated for: hendri@company.com",
+            15,
+            pageHeight - 9.5
+        );
+
+        pdf.text(
+            "Developed & Maintained by Hendri Septian",
+            pageWidth - 15,
+            pageHeight - 9.5,
+            {
+                align: "right"
+            }
+        );
+
+        pdf.setTextColor(
+            0,
+            0,
+            0
+        );
+
+    }
+
+
     pdf.save(
         sanitizeFileName(
             title
