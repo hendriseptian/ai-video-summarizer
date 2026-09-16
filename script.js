@@ -3102,7 +3102,7 @@ function exportPDF() {
         );
 
         pdf.text(
-            "Generated for: hendri@company.com",
+            "",
             15,
             pageHeight - 9.5
         );
