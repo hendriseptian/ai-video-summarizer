@@ -3007,7 +3007,7 @@ function exportPDF() {
 
 
     /* --------------------------------------------------------
-       PDF WATERMARK / FOOTER
+       PDF FOOTER WATERMARK
        Applied to every page after all content is generated.
        This does not change the analysis data or consume AI
        neurons because it is handled entirely in the browser.
@@ -3031,36 +3031,6 @@ function exportPDF() {
 
         const pageHeight =
             pdf.internal.pageSize.getHeight();
-
-        /* Light CONFIDENTIAL watermark */
-        pdf.saveGraphicsState();
-
-        pdf.setTextColor(
-            225,
-            225,
-            225
-        );
-
-        pdf.setFont(
-            "helvetica",
-            "bold"
-        );
-
-        pdf.setFontSize(
-            28
-        );
-
-        pdf.text(
-            "CONFIDENTIAL",
-            pageWidth / 2,
-            pageHeight / 2,
-            {
-                align: "center",
-                angle: 45
-            }
-        );
-
-        pdf.restoreGraphicsState();
 
         /* Footer watermark */
         pdf.setDrawColor(
@@ -3097,22 +3067,19 @@ function exportPDF() {
 
         pdf.text(
             "AI Video Summarizer  •  CONFIDENTIAL",
-            15,
-            pageHeight - 14
-        );
-
-        pdf.text(
-            "",
-            15,
-            pageHeight - 9.5
+            pageWidth / 2,
+            pageHeight - 14,
+            {
+                align: "center"
+            }
         );
 
         pdf.text(
             "Developed & Maintained by Hendri Septian",
-            pageWidth - 15,
+            pageWidth / 2,
             pageHeight - 9.5,
             {
-                align: "right"
+                align: "center"
             }
         );
 
