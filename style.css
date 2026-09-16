@@ -1315,9 +1315,20 @@ header.topbar > .neuron-monitor {
    HIDE UNNECESSARY INFORMATION
    ============================================================ */
 
-.neuron-progress-track,
+.neuron-progress-track {
+    display: none !important;
+}
+
 .neuron-status {
     display: none !important;
+}
+
+.neuron-monitor.quota-exhausted .neuron-status {
+    display: block !important;
+    margin-top: 5px;
+    font-size: 10px;
+    line-height: 1.35;
+    color: #b33a3a;
 }
 
 
