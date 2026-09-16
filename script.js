@@ -3051,6 +3051,56 @@ function exportPDF() {
     );
 
 
+    /* --------------------------------------------------------
+       PDF FOOTER / WATERMARK
+       --------------------------------------------------------
+       Centered on every PDF page.
+       No large diagonal watermark is used.
+    */
+
+    const pageCount =
+        pdf.getNumberOfPages();
+
+    for (
+        let page = 1;
+        page <= pageCount;
+        page++
+    ) {
+
+        pdf.setPage(
+            page
+        );
+
+        pdf.setFont(
+            "helvetica",
+            "normal"
+        );
+
+        pdf.setFontSize(
+            7.5
+        );
+
+        pdf.text(
+            "AI Video Summarizer • CONFIDENTIAL",
+            105,
+            285,
+            {
+                align: "center"
+            }
+        );
+
+        pdf.text(
+            "Developed & Maintained by Hendri Septian",
+            105,
+            290,
+            {
+                align: "center"
+            }
+        );
+
+    }
+
+
     pdf.save(
         sanitizeFileName(
             title
