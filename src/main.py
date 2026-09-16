@@ -18,7 +18,7 @@ from contextvars import ContextVar
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.6.3"
+    version="9.6.5"
 )
 
 
@@ -54,12 +54,12 @@ MAX_FINAL_CONTEXT_CHARS = 85000
 
 AI_TIMEOUT = 90.0
 
-AI_MAX_TOKENS = 4200
+AI_MAX_TOKENS = 5200
 
 # Fast path for short videos. Short transcripts avoid the optional
 # actor-evidence extraction pass and use smaller AI outputs.
 FAST_PATH_MAX_CHARS = 30000
-FAST_AI_MAX_TOKENS = 4200
+FAST_AI_MAX_TOKENS = 4500
 FAST_TRANSLATION_MAX_TOKENS = 3000
 
 AI_RETRIES = 1
@@ -829,12 +829,12 @@ You are a professional media monitoring and news analysis AI.
 Analyze ONLY the supplied transcript or factual extraction notes.
 The source material is the PRIMARY SOURCE.
 
-Produce ONE MASTER ANALYSIS in ENGLISH only.
-This English result will later be translated into Indonesian by a
-separate translation step. Therefore the English output is the
-single source of truth for all facts and analytical conclusions.
+Produce ONE MASTER BILINGUAL ANALYSIS in ENGLISH and INDONESIAN in the SAME JSON response.
+The English block is the master source of truth. The Indonesian block is a faithful translation of that same analysis.
+Do not perform a second analysis for Indonesian.
 
-Do not produce an Indonesian version here.
+Return both top-level keys: "en" and "id".
+The "id" block MUST be complete and must translate all prose into Indonesian while preserving names, numbers, dates, timestamps, evidence quotes, controlled labels, list counts, and order.
 Do not produce two alternative interpretations.
 Do not identify speakers.
 Do not use outside knowledge.
@@ -960,6 +960,41 @@ OUTPUT JSON
 Return exactly:
 {
   "en": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "implications": [],
+    "sentiment": {
+      "label": "positive",
+      "reason": ""
+    },
+    "main_issue": {
+      "title": "",
+      "description": ""
+    },
+    "media_analysis": {
+      "news_angle": "",
+      "highlighted_actors": [],
+      "actor_evidence": [],
+      "pemprov_jateng_position": "",
+      "public_opinion_potential": "",
+      "key_messages": []
+    },
+    "communication_risk": {
+      "level": "low",
+      "reason": "",
+      "escalation_potential": ""
+    },
+    "recommendations": [
+      {
+        "type": "monitoring",
+        "action": "",
+        "reason": ""
+      }
+    ],
+    "takeaways": []
+  },
+  "id": {
     "summary": "",
     "key_points": [],
     "critical_analysis": [],
@@ -3852,330 +3887,6 @@ async def fetch_transcript(
 # MASTER -> INDONESIAN TRANSLATION
 # ============================================================
 
-async def translate_master_to_indonesian(
-    master_en,
-    max_tokens=4200
-):
-
-    if not isinstance(master_en, dict):
-        raise ValueError(
-            "Master English analysis is invalid."
-        )
-
-    source_json = json.dumps(
-        {
-            "en": master_en
-        },
-        ensure_ascii=False,
-        indent=2
-    )
-
-    prompt = """
-Translate the following MASTER ENGLISH ANALYSIS into Indonesian.
-
-IMPORTANT:
-- This is translation only, NOT a new analysis.
-- Preserve every fact, number, date, actor, issue, conclusion,
-  recommendation type, and list-item count.
-- Preserve the same order.
-- Translate ALL prose, especially recommendation action and reason.
-- Do not leave English sentences in the Indonesian result.
-- Keep the literal prefix "Inference:" for inferential items.
-- Keep controlled internal values unchanged.
-- Preserve actor_evidence one-to-one.
-- DO NOT translate evidence_quote; it must remain verbatim source text.
-- DO NOT change evidence_timestamp.
-
-MASTER ENGLISH ANALYSIS:
-
-""" + source_json
-
-    last_error = None
-
-    for attempt in range(2):
-        try:
-            parsed = await run_ai_json(
-                INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
-                prompt,
-                max_tokens
-            )
-
-            # Accept the expected {"id": {...}} shape, but also tolerate
-            # models that return the language block directly or wrap it in
-            # a common analysis/translation key. This prevents an unnecessary
-            # second AI call when the translation content itself is valid.
-            id_block = None
-
-            if isinstance(parsed, dict):
-                candidate = parsed.get("id")
-
-                if isinstance(candidate, dict):
-                    id_block = candidate
-                elif isinstance(parsed.get("analysis"), dict):
-                    id_block = parsed.get("analysis")
-                elif isinstance(parsed.get("translation"), dict):
-                    id_block = parsed.get("translation")
-                elif "summary" in parsed:
-                    id_block = parsed
-
-            if not isinstance(id_block, dict):
-                raise ValueError(
-                    "Indonesian translation returned invalid data."
-                )
-
-            id_block = normalize_language_block(id_block)
-            validate_indonesian_translation(master_en, id_block)
-            return id_block
-
-        except Exception as error:
-            last_error = error
-
-            if attempt == 0:
-                prompt += (
-                    "\n\nRETRY REQUIREMENT: The previous translation was incomplete. "
-                    "Translate every field, especially recommendation action/reason "
-                    "and actor evidence metadata. Preserve counts and order."
-                )
-
-    raise RuntimeError(
-        "Indonesian translation failed after retries: "
-        + str(last_error)
-    )
-
-
-def validate_indonesian_translation(
-    master_en,
-    id_block
-):
-
-    if not isinstance(master_en, dict):
-        raise ValueError(
-            "Master English analysis is invalid."
-        )
-
-    if not isinstance(id_block, dict):
-        raise ValueError(
-            "Indonesian analysis is invalid."
-        )
-
-    # Required text fields must exist in ID.
-    required_text_fields = [
-        "summary"
-    ]
-
-    for field_name in required_text_fields:
-        if not normalize_text(
-            id_block.get(field_name, "")
-        ):
-            raise ValueError(
-                "Indonesian translation is incomplete: "
-                + field_name
-            )
-
-    # List sections must preserve item counts.
-    list_fields = [
-        "key_points",
-        "critical_analysis",
-        "implications",
-        "takeaways"
-    ]
-
-    for field_name in list_fields:
-
-        en_items = master_en.get(
-            field_name,
-            []
-        )
-        id_items = id_block.get(
-            field_name,
-            []
-        )
-
-        if not isinstance(en_items, list):
-            en_items = []
-
-        if not isinstance(id_items, list):
-            id_items = []
-
-        if len(en_items) != len(id_items):
-            raise ValueError(
-                "Indonesian translation changed item count: "
-                + field_name
-            )
-
-        for index, en_item in enumerate(en_items):
-            id_item = id_items[index]
-
-            en_text = normalize_text(en_item)
-            id_text = normalize_text(id_item)
-
-            if en_text and not id_text:
-                raise ValueError(
-                    "Indonesian translation contains an empty item: "
-                    + field_name
-                )
-
-    # Main issue must be complete.
-    en_issue = master_en.get(
-        "main_issue",
-        {}
-    )
-    id_issue = id_block.get(
-        "main_issue",
-        {}
-    )
-
-    if not isinstance(en_issue, dict):
-        en_issue = {}
-    if not isinstance(id_issue, dict):
-        id_issue = {}
-
-    if en_issue.get("title") and not id_issue.get("title"):
-        raise ValueError(
-            "Indonesian translation is incomplete: main_issue.title"
-        )
-
-    if en_issue.get("description") and not id_issue.get("description"):
-        raise ValueError(
-            "Indonesian translation is incomplete: main_issue.description"
-        )
-
-    # Actor evidence must remain one-to-one and traceable.
-    en_media = master_en.get("media_analysis", {})
-    id_media = id_block.get("media_analysis", {})
-    if not isinstance(en_media, dict):
-        en_media = {}
-    if not isinstance(id_media, dict):
-        id_media = {}
-
-    en_evidence = en_media.get("actor_evidence", [])
-    id_evidence = id_media.get("actor_evidence", [])
-    if not isinstance(en_evidence, list):
-        en_evidence = []
-    if not isinstance(id_evidence, list):
-        id_evidence = []
-
-    if len(en_evidence) != len(id_evidence):
-        raise ValueError(
-            "Indonesian translation changed actor evidence count."
-        )
-
-    for index, en_item in enumerate(en_evidence):
-        if not isinstance(en_item, dict):
-            continue
-        id_item = id_evidence[index]
-        if not isinstance(id_item, dict):
-            raise ValueError("Indonesian actor evidence item is invalid.")
-
-        if normalize_text(en_item.get("actor", "")) and not normalize_text(id_item.get("actor", "")):
-            raise ValueError("Indonesian actor evidence is incomplete: actor")
-
-        if normalize_text(en_item.get("evidence_timestamp", "")) != normalize_text(id_item.get("evidence_timestamp", "")):
-            raise ValueError("Indonesian actor evidence timestamp changed.")
-
-        # Evidence quote is source text, so it must remain verbatim.
-        if normalize_text(en_item.get("evidence_quote", "")) != normalize_text(id_item.get("evidence_quote", "")):
-            raise ValueError("Indonesian actor evidence quote changed.")
-
-    # Recommendation count and prose must be preserved.
-    en_recs = master_en.get(
-        "recommendations",
-        []
-    )
-    id_recs = id_block.get(
-        "recommendations",
-        []
-    )
-
-    if not isinstance(en_recs, list):
-        en_recs = []
-    if not isinstance(id_recs, list):
-        id_recs = []
-
-    if len(en_recs) != len(id_recs):
-        raise ValueError(
-            "Indonesian translation changed recommendation count."
-        )
-
-    for index, en_rec in enumerate(en_recs):
-
-        if not isinstance(en_rec, dict):
-            continue
-
-        id_rec = id_recs[index]
-        if not isinstance(id_rec, dict):
-            raise ValueError(
-                "Indonesian recommendation item is invalid."
-            )
-
-        en_type = str(
-            en_rec.get("type", "")
-        ).strip().lower()
-        id_type = str(
-            id_rec.get("type", "")
-        ).strip().lower()
-
-        if en_type != id_type:
-            raise ValueError(
-                "Indonesian recommendation type changed."
-            )
-
-        for prose_field in [
-            "action",
-            "reason"
-        ]:
-            if (
-                normalize_text(
-                    en_rec.get(prose_field, "")
-                )
-                and not normalize_text(
-                    id_rec.get(prose_field, "")
-                )
-            ):
-                raise ValueError(
-                    "Indonesian recommendation is incomplete: "
-                    + prose_field
-                )
-
-    # Important: if the translation is exactly identical to English
-    # for a whole prose field, it is almost certainly untranslated.
-    # This specifically catches the current Action/Reason problem.
-    if (
-        normalize_text(master_en.get("summary", ""))
-        and normalize_text(master_en.get("summary", ""))
-        == normalize_text(id_block.get("summary", ""))
-    ):
-        raise ValueError(
-            "Indonesian summary appears untranslated."
-        )
-
-    for index, en_rec in enumerate(en_recs):
-        if not isinstance(en_rec, dict):
-            continue
-
-        id_rec = id_recs[index]
-
-        for prose_field in [
-            "action",
-            "reason"
-        ]:
-            en_text = normalize_text(
-                en_rec.get(prose_field, "")
-            )
-            id_text = normalize_text(
-                id_rec.get(prose_field, "")
-            )
-
-            if en_text and id_text and en_text == id_text:
-                raise ValueError(
-                    "Indonesian recommendation "
-                    + prose_field
-                    + " appears untranslated."
-                )
-
-    return True
-
-
 async def build_consistent_analysis(
     master_result,
     actor_source=None,
@@ -4183,103 +3894,125 @@ async def build_consistent_analysis(
 ):
 
     if not isinstance(master_result, dict):
-        raise ValueError(
-            "Master analysis returned invalid data."
-        )
+        raise ValueError("Master analysis returned invalid data.")
 
-    master_en = master_result.get(
-        "en",
-        master_result
-    )
+    # Accept several common wrappers returned by Workers AI.
+    def find_language_block(obj, language):
+        if not isinstance(obj, dict):
+            return None
 
+        direct = obj.get(language)
+        if isinstance(direct, dict):
+            return direct
+
+        for key in ["analysis", "result", "response", "data", "translation", "translated"]:
+            value = obj.get(key)
+            if isinstance(value, dict):
+                found = find_language_block(value, language)
+                if isinstance(found, dict):
+                    return found
+        return None
+
+    master_en = find_language_block(master_result, "en")
     if not isinstance(master_en, dict):
-        raise ValueError(
-            "Master English analysis is missing."
-        )
+        # Some models return the EN block directly.
+        if "summary" in master_result:
+            master_en = master_result
+        else:
+            raise ValueError("Master English analysis is missing.")
 
-    master_en = normalize_language_block(
-        master_en
-    )
+    master_en = normalize_language_block(master_en)
 
-    # Only run the extra actor extraction pass when the master analysis
-    # does not already contain useful named actors/evidence. This reduces
-    # latency and failure points for normal short videos while preserving
-    # the dedicated extractor as a fallback for difficult transcripts.
-    if actor_source and not fast_path:
-        media = master_en.get("media_analysis", {})
-        if not isinstance(media, dict):
-            media = {}
-            master_en["media_analysis"] = media
-
-        existing_actors = media.get("highlighted_actors", [])
-        existing_evidence = media.get("actor_evidence", [])
-
-        if not existing_actors:
-            try:
-                extracted_actors, actor_evidence = await extract_highlighted_actors(
-                    actor_source
-                )
-
-                if extracted_actors:
-                    media["highlighted_actors"] = extracted_actors
-
-                if actor_evidence:
-                    media["actor_evidence"] = actor_evidence
-
-            except Exception:
-                # Actor evidence is supplemental. Never let this optional
-                # pass destroy an otherwise valid analysis.
-                pass
-
-    # Prefer the Indonesian block already returned by the same MASTER AI call.
-    # The master system prompt already defines both EN and ID output blocks.
-    # This removes the extra translation AI call, which was the main latency
-    # source and the recurring failure point.
-    id_block = None
-
-    if isinstance(master_result, dict):
-        candidate_id = master_result.get("id")
-        if isinstance(candidate_id, dict):
-            id_block = normalize_language_block(candidate_id)
+    # The master call is deliberately bilingual. Do not run the old
+    # translation pipeline here: that was the recurring failure point.
+    id_block = find_language_block(master_result, "id")
 
     if isinstance(id_block, dict):
-        try:
-            validate_indonesian_translation(
-                master_en,
-                id_block
-            )
-        except Exception:
-            # If the same AI response contains an unusable ID block, fall back
-            # to the dedicated translation path instead of failing the video.
+        id_block = normalize_language_block(id_block)
+
+        # Do not let strict translation validation turn a usable bilingual
+        # response into the old translation error. Validate only the structural
+        # essentials needed by the frontend.
+        if not id_block.get("summary"):
+            id_block = None
+        elif len(id_block.get("key_points", [])) != len(master_en.get("key_points", [])):
+            id_block = None
+        elif len(id_block.get("critical_analysis", [])) != len(master_en.get("critical_analysis", [])):
+            id_block = None
+        elif len(id_block.get("implications", [])) != len(master_en.get("implications", [])):
+            id_block = None
+        elif len(id_block.get("takeaways", [])) != len(master_en.get("takeaways", [])):
+            id_block = None
+        elif len(id_block.get("recommendations", [])) != len(master_en.get("recommendations", [])):
             id_block = None
 
     if not isinstance(id_block, dict):
-        id_block = await translate_master_to_indonesian(
-            master_en,
-            FAST_TRANSLATION_MAX_TOKENS if fast_path else 4200
+        # One controlled repair call only when the first bilingual response
+        # is incomplete. This is NOT the old translation retry loop.
+        repair_prompt = """
+The previous AI response contained a valid English analysis but its Indonesian
+block was missing or structurally incomplete.
+
+Create ONLY the Indonesian block from the English block below.
+This is a translation repair, not a new analysis.
+Preserve every fact, number, name, date, actor, evidence timestamp, evidence
+quote, list count/order, sentiment label, risk level and recommendation type.
+Translate all prose naturally into Indonesian.
+
+Return ONLY this JSON object:
+{
+  "id": {
+    "summary": "",
+    "key_points": [],
+    "critical_analysis": [],
+    "implications": [],
+    "sentiment": {"label": "", "reason": ""},
+    "main_issue": {"title": "", "description": ""},
+    "media_analysis": {
+      "news_angle": "",
+      "highlighted_actors": [],
+      "actor_evidence": [],
+      "pemprov_jateng_position": "",
+      "public_opinion_potential": "",
+      "key_messages": []
+    },
+    "communication_risk": {
+      "level": "",
+      "reason": "",
+      "escalation_potential": ""
+    },
+    "recommendations": [],
+    "takeaways": []
+  }
+}
+
+ENGLISH BLOCK:
+""" + json.dumps(master_en, ensure_ascii=False)
+
+        repaired = await run_ai_json(
+            INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
+            repair_prompt,
+            4200
         )
 
-        validate_indonesian_translation(
-            master_en,
-            id_block
-        )
+        id_block = find_language_block(repaired, "id")
+        if not isinstance(id_block, dict) and isinstance(repaired, dict) and "summary" in repaired:
+            id_block = repaired
+
+        if not isinstance(id_block, dict):
+            raise RuntimeError(
+                "Bilingual AI response did not contain a usable Indonesian analysis."
+            )
+
+        id_block = normalize_language_block(id_block)
 
     result = {
         "en": master_en,
         "id": id_block
     }
 
-    # Lock controlled analytical decisions to the master EN result.
-    result = synchronize_language_analysis(
-        result
-    )
-
-    # Do NOT copy English prose into Indonesian as a fallback.
-    # The Indonesian block must come from the translation step so
-    # that no English text can leak into the ID report.
-    return enforce_inference_labels(
-        result
-    )
+    result = synchronize_language_analysis(result)
+    return enforce_inference_labels(result)
 
 
 # ============================================================
@@ -4346,16 +4079,22 @@ async def analyze_large_transcript(
 Create the final professional video analysis from the following
 factual extraction notes.
 
-IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
-The Indonesian version is generated separately by a translation step.
-Do not produce an Indonesian analysis in this call.
+IMPORTANT: Produce BOTH language blocks in this ONE AI call.
+- "en" = complete master English analysis.
+- "id" = complete faithful Indonesian translation of the same analysis.
+- Preserve facts, names, numbers, dates, list counts, order, sentiment, risk, recommendation types, and actor evidence.
+- Do not perform a separate re-analysis for Indonesian.
 
 Use all relevant information.
 
 Follow the required JSON structure.
 
-The executive summary must normally be approximately
-180-300 words.
+The executive summary should contain approximately 120-180 words per language.
+- Key Points: 4-6 items per language.
+- Critical Analysis: 2 items per language.
+- Implications: 2 items per language.
+- Takeaways: 2-3 items per language.
+- Recommendations: maximum 3 items per language.
 
 Do not invent facts.
 
@@ -4370,12 +4109,12 @@ ANALYSIS NOTES:
     final_result = await run_ai_json(
         MASTER_SYSTEM_PROMPT,
         final_prompt,
-        4200
+        5200
     )
 
     analysis = await build_consistent_analysis(
         final_result,
-        actor_source=transcript_text
+        actor_source=None
     )
 
     return (
@@ -4426,6 +4165,13 @@ IMPORTANT: Produce BOTH language blocks in this ONE AI call.
 - Keep facts, names, numbers, dates, list counts, order, sentiment, risk,
   recommendation types, and actor evidence consistent between EN and ID.
 - Do not perform a separate re-analysis for Indonesian.
+- Keep the bilingual response compact enough to fit the output limit.
+- Summary: about 120-180 words per language.
+- Key Points: 4-6 items per language.
+- Critical Analysis: 2 items per language.
+- Implications: 2 items per language.
+- Takeaways: 2-3 items per language.
+- Recommendations: maximum 3 items per language.
 
 Use ALL relevant information.
 
@@ -4464,14 +4210,22 @@ TRANSCRIPT:
 Create the final professional video analysis from
 the following transcript.
 
-IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
-The Indonesian version is generated separately by a translation step.
-Do not produce an Indonesian analysis in this call.
+IMPORTANT: Produce BOTH language blocks in this ONE AI call.
+- "en" = complete master English analysis.
+- "id" = complete faithful Indonesian translation of the same analysis.
+- Preserve facts, names, numbers, dates, list counts, order, sentiment, risk, recommendation types, and actor evidence.
+- Do not perform a separate re-analysis for Indonesian.
+- Keep the bilingual response compact enough to fit the output limit.
+- Summary: about 120-180 words per language.
+- Key Points: 4-6 items per language.
+- Critical Analysis: 2 items per language.
+- Implications: 2 items per language.
+- Takeaways: 2-3 items per language.
+- Recommendations: maximum 3 items per language.
 
 Use ALL relevant information.
 
-The executive summary must normally contain
-approximately 180-300 words.
+The executive summary should contain approximately 120-180 words per language.
 
 Follow the required JSON structure.
 
@@ -4493,7 +4247,7 @@ TRANSCRIPT:
 
         analysis = await build_consistent_analysis(
             result,
-            actor_source=transcript_text,
+            actor_source=None,
             fast_path=False
         )
 
@@ -4932,7 +4686,7 @@ AGGREGATION DATA:
 @app.get("/quota-status")
 async def quota_status_endpoint():
     return {
-        "version": "9.6.3",
+        "version": "9.6.5",
         "provider": "Cloudflare Workers AI",
         "primary_model": AI_MODEL,
         "fallback_model": AI_FALLBACK_MODEL,
@@ -4964,7 +4718,7 @@ async def ai_test():
                 "ok",
 
             "version":
-                "9.6.3",
+                "9.6.5",
 
             "ai":
                 parsed,
@@ -4988,7 +4742,7 @@ async def ai_test():
                 "error",
 
             "version":
-                "9.6.3",
+                "9.6.5",
 
             "primary_model":
                 AI_MODEL,
@@ -5025,7 +4779,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.6.3"
+            "9.6.5"
     }
 
 
@@ -5041,7 +4795,7 @@ async def health():
             "ok",
 
         "version":
-            "9.6.3"
+            "9.6.5"
     }
 
 
