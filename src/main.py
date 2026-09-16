@@ -1,15 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from workers import WorkerEntrypoint, asgi, env
+from workers import asgi, env
 import httpx2 as httpx
 
 import ast
-import asyncio
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
-from contextvars import ContextVar
 
 
 # ============================================================
@@ -18,7 +15,7 @@ from contextvars import ContextVar
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.6.5"
+    version="9.3.0"
 )
 
 
@@ -39,63 +36,21 @@ app.add_middleware(
 # CONFIGURATION
 # ============================================================
 
-AI_MODEL = "@cf/zai-org/glm-4.7-flash"
-AI_FALLBACK_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
+AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
 
 TRANSCRIPT_API_URL = (
     "https://api.freetranscriptapi.com/v1/transcript"
 )
 
-CHUNK_SIZE = 30000
+CHUNK_SIZE = 18000
 
-MAX_SINGLE_PASS_CHARS = 90000
+MAX_SINGLE_PASS_CHARS = 100000
 
-MAX_FINAL_CONTEXT_CHARS = 85000
+MAX_FINAL_CONTEXT_CHARS = 90000
 
-AI_TIMEOUT = 90.0
+AI_TIMEOUT = 120.0
 
-AI_MAX_TOKENS = 5200
-
-# Fast path for short videos. Short transcripts avoid the optional
-# actor-evidence extraction pass and use smaller AI outputs.
-FAST_PATH_MAX_CHARS = 30000
-FAST_AI_MAX_TOKENS = 4500
-FAST_TRANSLATION_MAX_TOKENS = 3000
-
-AI_RETRIES = 1
-
-TRANSCRIPT_RETRIES = 2
-
-# ============================================================
-# DAILY WORKERS AI QUOTA GUARD
-# ============================================================
-# Workers AI free allocation resets at 00:00 UTC.
-# This guard does NOT try to modify Cloudflare quota.
-# It prevents repeated 4006 requests during the same UTC day and
-# automatically becomes available again on the next UTC date.
-AI_QUOTA_GUARD = {
-    "blocked_date": None,
-    "last_error": "",
-    "last_model": "",
-    "blocked_at_utc": None
-}
-
-QUOTA_KV_KEY = "workers-ai-daily-quota-guard"
-
-# Persistent application-side Neuron usage estimate.
-# This is an estimate based on input/output token counts, not the
-# official Cloudflare dashboard value.
-NEURON_USAGE_KV_KEY = "workers-ai-daily-neuron-estimate"
-NEURON_DAILY_LIMIT = 10000
-GLM_INPUT_NEURONS_PER_MILLION = 5500
-GLM_OUTPUT_NEURONS_PER_MILLION = 36400
-CHARS_PER_ESTIMATED_TOKEN = 4.0
-
-AI_USAGE_CONTEXT = ContextVar(
-    "ai_usage_context",
-    default=None
-)
-
+AI_MAX_TOKENS = 5000
 
 
 # ============================================================
@@ -720,7 +675,6 @@ Use exactly this structure:
     "media_analysis": {
       "news_angle": "",
       "highlighted_actors": [],
-      "actor_evidence": [],
       "pemprov_jateng_position": "",
       "public_opinion_potential": "",
       "key_messages": []
@@ -755,7 +709,6 @@ Use exactly this structure:
     "media_analysis": {
       "news_angle": "",
       "highlighted_actors": [],
-      "actor_evidence": [],
       "pemprov_jateng_position": "",
       "public_opinion_potential": "",
       "key_messages": []
@@ -829,12 +782,12 @@ You are a professional media monitoring and news analysis AI.
 Analyze ONLY the supplied transcript or factual extraction notes.
 The source material is the PRIMARY SOURCE.
 
-Produce ONE MASTER BILINGUAL ANALYSIS in ENGLISH and INDONESIAN in the SAME JSON response.
-The English block is the master source of truth. The Indonesian block is a faithful translation of that same analysis.
-Do not perform a second analysis for Indonesian.
+Produce ONE MASTER ANALYSIS in ENGLISH only.
+This English result will later be translated into Indonesian by a
+separate translation step. Therefore the English output is the
+single source of truth for all facts and analytical conclusions.
 
-Return both top-level keys: "en" and "id".
-The "id" block MUST be complete and must translate all prose into Indonesian while preserving names, numbers, dates, timestamps, evidence quotes, controlled labels, list counts, and order.
+Do not produce an Indonesian version here.
 Do not produce two alternative interpretations.
 Do not identify speakers.
 Do not use outside knowledge.
@@ -924,14 +877,7 @@ Before returning JSON:
 10. For highlighted_actors, verify that each item identifies a person/institution,
     and includes the person's name and official title whenever explicitly stated.
 11. Never replace a named attendee with a generic action such as "attended the opening".
-12. For every highlighted actor, provide at least one evidence item in
-    media_analysis.actor_evidence when the source contains enough evidence.
-13. Evidence MUST come directly from the supplied source and MUST include
-    the source timestamp when a timestamp is available.
-14. Evidence quote must be a short verbatim excerpt from the source, not a
-    paraphrase. Do not invent or reconstruct quotations.
-15. Evidence is factual only; do not add analytical interpretation to it.
-16. Return ONLY valid JSON.
+12. Return ONLY valid JSON.
 
 ============================================================
 ACTOR DETAIL REQUIREMENT
@@ -975,42 +921,6 @@ Return exactly:
     "media_analysis": {
       "news_angle": "",
       "highlighted_actors": [],
-      "actor_evidence": [],
-      "pemprov_jateng_position": "",
-      "public_opinion_potential": "",
-      "key_messages": []
-    },
-    "communication_risk": {
-      "level": "low",
-      "reason": "",
-      "escalation_potential": ""
-    },
-    "recommendations": [
-      {
-        "type": "monitoring",
-        "action": "",
-        "reason": ""
-      }
-    ],
-    "takeaways": []
-  },
-  "id": {
-    "summary": "",
-    "key_points": [],
-    "critical_analysis": [],
-    "implications": [],
-    "sentiment": {
-      "label": "positive",
-      "reason": ""
-    },
-    "main_issue": {
-      "title": "",
-      "description": ""
-    },
-    "media_analysis": {
-      "news_angle": "",
-      "highlighted_actors": [],
-      "actor_evidence": [],
       "pemprov_jateng_position": "",
       "public_opinion_potential": "",
       "key_messages": []
@@ -1037,64 +947,49 @@ Return exactly:
 # ============================================================
 
 ACTOR_EXTRACTION_SYSTEM_PROMPT = """
-You are a strict factual entity-and-evidence extraction AI for a professional
-media monitoring report.
+You are a strict factual entity-extraction AI for a professional media
+monitoring report.
 
-Extract ONLY people, government officials, government agencies, OPDs,
-institutions, organizations, communities, or other actors explicitly
-mentioned in the supplied transcript/factual source AND connected to the
-event, attendance, participation, opening, speech, leadership, representation,
-or another concrete role.
+Extract ONLY people, officials, government agencies, OPDs, institutions,
+or organizations that are explicitly mentioned in the supplied transcript
+or factual notes AND are connected to the event, attendance, participation,
+opening, speech, leadership, representation, or another concrete role.
 
-The purpose is to identify WHO is involved and provide the exact source
-evidence showing that involvement.
+IMPORTANT: The purpose is to identify WHO is involved, not merely WHAT
+happened.
 
-For every PERSON, extract:
-- full name, if explicitly stated
-- official title/position, if explicitly stated
-- role/action
-- timestamp of the evidence
-- short verbatim evidence quote
+For every person, identify: FULL NAME + OFFICIAL TITLE/POSITION + ROLE/ACTION.
 
-RULES:
+Rules:
 1. Use ONLY information explicitly present in the source.
-2. NEVER guess a person's name from their title.
+2. NEVER guess or infer a person's name from their title.
 3. NEVER use outside knowledge.
-4. If a person's name is explicitly present, include it.
-5. If only the title is present, use an empty name and state the title.
-6. Prefer actual attendees/participants over people merely mentioned.
-7. Distinguish actual attendance/participation from mere mention.
-8. Do not identify speakers by voice. Only use names explicitly stated.
-9. Do not output generic action-only actors.
+4. If a person's name is explicitly present, it MUST be included.
+5. If only the title is present, use:
+   "Official Title — name not stated in transcript — role/action"
+6. If both name and title are present, use:
+   "Full Name — Official Title — role/action"
+7. Prefer actual attendees/participants over people merely mentioned.
+8. Do not identify speakers by voice. Only use names explicitly stated in
+   the source.
+9. Do not output generic action-only items such as "attended the opening".
 10. Deduplicate the same person.
-11. Keep official titles faithful to the source.
-12. Keep role/action concise and factual.
-13. Evidence quote MUST be copied verbatim from the source.
-14. Evidence quote should normally be 5-30 words and contain the actor
-    name/title and/or the relevant action whenever possible.
-15. Evidence timestamp MUST be the timestamp shown immediately before the
-    supporting source text, such as [02:31]. If no timestamp is available,
-    use an empty string.
-16. Do not create a timestamp.
-17. For institutions/OPDs, include them only when they have a concrete role.
-18. If no supported actor can be identified, return an empty actors array.
+11. Keep the official title as stated or clearly formatted from the source.
+12. Keep the role/action concise and factual.
+13. If an institution/OPD is mentioned without a person, include it only
+    when it has a concrete role in the event.
 
 Return ONLY valid JSON in exactly this structure:
 {
   "actors": [
-    {
-      "name": "",
-      "official_title": "",
-      "role": "",
-      "evidence_timestamp": "",
-      "evidence_quote": ""
-    }
+    "Full Name — Official Title — role/action"
   ]
 }
 
-If no supported actor can be identified:
+If no supported actor can be identified, return:
 {"actors": []}
 """
+
 
 # ============================================================
 # INDONESIAN TRANSLATION SYSTEM PROMPT
@@ -1165,9 +1060,6 @@ TRANSLATION RULES
 
 10. Highlighted actor items must remain one-to-one with the English master.
     Preserve every person's name, official title, attendance status, and role/action.
-10a. Preserve actor_evidence one-to-one with the English master. Preserve
-     evidence_timestamp exactly. Evidence quotes MUST remain verbatim source
-     text and MUST NOT be translated, paraphrased, or altered.
     Translate the descriptive wording, but never translate or alter proper names.
 
 11. Controlled values MUST remain unchanged internally:
@@ -1197,9 +1089,6 @@ The Indonesian version must be a faithful translation of the master,
 not a new interpretation.
 
 Return ONLY valid JSON.
-The top-level JSON object MUST contain exactly one key named "id".
-The value of "id" MUST be a JSON object containing the translated analysis fields.
-Do not return an array, string, markdown, or explanatory text.
 
 OUTPUT:
 {
@@ -1798,437 +1687,11 @@ def chunk_text(
 # RUN AI
 # ============================================================
 
-def is_ai_quota_error(message):
-    text = str(message or "").lower()
-
-    markers = [
-        "4006",
-        "3036",
-        "daily free allocation",
-        "10,000 neurons",
-        "10000 neurons",
-        "account limited",
-        "rate limit",
-        "too many requests"
-    ]
-
-    return any(marker in text for marker in markers)
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
-
-
-def utc_date_key(now=None):
-    now = now or utc_now()
-    return now.strftime("%Y-%m-%d")
-
-
-def next_quota_reset_utc(now=None):
-    now = now or utc_now()
-    next_day = (now + timedelta(days=1)).date()
-    return datetime(
-        next_day.year,
-        next_day.month,
-        next_day.day,
-        0,
-        0,
-        0,
-        tzinfo=timezone.utc
-    )
-
-
-def quota_reset_iso(now=None):
-    return next_quota_reset_utc(now).isoformat().replace("+00:00", "Z")
-
-
-async def load_quota_guard():
-    """Load persistent quota state from Cloudflare KV.
-
-    KV is the persistent source for the application-side circuit breaker.
-    The actual Workers AI quota remains controlled by Cloudflare.
-    """
-    try:
-        raw = await env.QUOTA_KV.get(QUOTA_KV_KEY)
-        if raw:
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                AI_QUOTA_GUARD.update({
-                    "blocked_date": data.get("blocked_date"),
-                    "last_error": data.get("last_error", ""),
-                    "last_model": data.get("last_model", ""),
-                    "blocked_at_utc": data.get("blocked_at_utc")
-                })
-    except Exception:
-        # Keep the Worker functional if KV has a temporary read problem.
-        # Cloudflare remains the authority for the real AI quota.
-        pass
-
-
-async def save_quota_guard():
-    """Persist the current quota guard state to Cloudflare KV."""
-    data = {
-        "blocked_date": AI_QUOTA_GUARD.get("blocked_date"),
-        "last_error": AI_QUOTA_GUARD.get("last_error", ""),
-        "last_model": AI_QUOTA_GUARD.get("last_model", ""),
-        "blocked_at_utc": AI_QUOTA_GUARD.get("blocked_at_utc")
-    }
-
-    try:
-        await env.QUOTA_KV.put(
-            QUOTA_KV_KEY,
-            json.dumps(data),
-            expiration_ttl=172800
-        )
-    except Exception:
-        # The AI request result must not be hidden by a KV write failure.
-        pass
-
-
-async def refresh_quota_guard():
-    """
-    Load the persistent guard and clear it automatically when the UTC date changes.
-    """
-    await load_quota_guard()
-
-    today = utc_date_key()
-    blocked_date = AI_QUOTA_GUARD.get("blocked_date")
-
-    if blocked_date and blocked_date != today:
-        AI_QUOTA_GUARD["blocked_date"] = None
-        AI_QUOTA_GUARD["last_error"] = ""
-        AI_QUOTA_GUARD["last_model"] = ""
-        AI_QUOTA_GUARD["blocked_at_utc"] = None
-        await save_quota_guard()
-        return True
-
-    return False
-
-
-async def is_quota_guard_blocked():
-    await refresh_quota_guard()
-    return AI_QUOTA_GUARD.get("blocked_date") == utc_date_key()
-
-
-async def set_quota_guard_block(model, message):
-    now = utc_now()
-    AI_QUOTA_GUARD["blocked_date"] = utc_date_key(now)
-    AI_QUOTA_GUARD["last_error"] = str(message)
-    AI_QUOTA_GUARD["last_model"] = str(model or "")
-    AI_QUOTA_GUARD["blocked_at_utc"] = now.isoformat().replace("+00:00", "Z")
-    await save_quota_guard()
-
-
-def estimate_tokens_from_text(text):
-    if not text:
-        return 0
-
-    return max(
-        1,
-        int(
-            (len(str(text)) + CHARS_PER_ESTIMATED_TOKEN - 1)
-            / CHARS_PER_ESTIMATED_TOKEN
-        )
-    )
-
-
-def estimate_neurons(
-    input_tokens,
-    output_tokens,
-    model=None
-):
-    model_text = str(model or "")
-
-    if "llama-3.1-8b-instruct-fast" in model_text:
-        input_rate = 4119
-        output_rate = 34868
-    else:
-        input_rate = GLM_INPUT_NEURONS_PER_MILLION
-        output_rate = GLM_OUTPUT_NEURONS_PER_MILLION
-
-    input_neurons = (
-        input_tokens
-        * input_rate
-        / 1_000_000
-    )
-
-    output_neurons = (
-        output_tokens
-        * output_rate
-        / 1_000_000
-    )
-
-    return max(
-        1,
-        int(
-            round(
-                input_neurons + output_neurons
-            )
-        )
-    )
-
-
-def record_ai_usage_estimate(
-    system_prompt,
-    user_prompt,
-    result,
-    model
-):
-    """Record per-request estimated Workers AI usage in request context."""
-    context = AI_USAGE_CONTEXT.get()
-
-    if context is None:
-        return
-
-    input_text = (
-        str(system_prompt or "")
-        + "\n"
-        + str(user_prompt or "")
-    )
-
-    output_text = extract_ai_text(
-        result
-    )
-
-    input_tokens = estimate_tokens_from_text(
-        input_text
-    )
-
-    output_tokens = estimate_tokens_from_text(
-        output_text
-    ) if output_text else 0
-
-    neurons = estimate_neurons(
-        input_tokens,
-        output_tokens,
-        model
-    )
-
-    context["estimated_neurons"] = (
-        context.get("estimated_neurons", 0)
-        + neurons
-    )
-
-    context["estimated_input_tokens"] = (
-        context.get("estimated_input_tokens", 0)
-        + input_tokens
-    )
-
-    context["estimated_output_tokens"] = (
-        context.get("estimated_output_tokens", 0)
-        + output_tokens
-    )
-
-    context["ai_calls"] = (
-        context.get("ai_calls", 0)
-        + 1
-    )
-
-    context["models"] = list(
-        dict.fromkeys(
-            context.get("models", [])
-            + [str(model)]
-        )
-    )
-
-
-async def load_neuron_usage():
-    try:
-        raw = await env.QUOTA_KV.get(
-            NEURON_USAGE_KV_KEY
-        )
-
-        if not raw:
-            return {
-                "date_utc": utc_date_key(),
-                "estimated_neurons": 0,
-                "videos_analyzed": 0,
-                "last_video_neurons": 0,
-                "last_updated_utc": None
-            }
-
-        data = json.loads(raw)
-
-        if not isinstance(data, dict):
-            raise ValueError("Invalid neuron usage state")
-
-        today = utc_date_key()
-
-        if data.get("date_utc") != today:
-            return {
-                "date_utc": today,
-                "estimated_neurons": 0,
-                "videos_analyzed": 0,
-                "last_video_neurons": 0,
-                "last_updated_utc": None
-            }
-
-        return {
-            "date_utc": today,
-            "estimated_neurons": max(
-                0,
-                int(data.get("estimated_neurons", 0) or 0)
-            ),
-            "videos_analyzed": max(
-                0,
-                int(data.get("videos_analyzed", 0) or 0)
-            ),
-            "last_video_neurons": max(
-                0,
-                int(data.get("last_video_neurons", 0) or 0)
-            ),
-            "last_updated_utc": data.get(
-                "last_updated_utc"
-            )
-        }
-
-    except Exception:
-        return {
-            "date_utc": utc_date_key(),
-            "estimated_neurons": 0,
-            "videos_analyzed": 0,
-            "last_video_neurons": 0,
-            "last_updated_utc": None
-        }
-
-
-async def save_neuron_usage(data):
-    try:
-        await env.QUOTA_KV.put(
-            NEURON_USAGE_KV_KEY,
-            json.dumps(
-                data,
-                ensure_ascii=False
-            ),
-            expiration_ttl=172800
-        )
-    except Exception:
-        pass
-
-
-async def add_neuron_usage_estimate(neurons):
-    neurons = max(
-        0,
-        int(neurons or 0)
-    )
-
-    data = await load_neuron_usage()
-
-    data["estimated_neurons"] = min(
-        NEURON_DAILY_LIMIT,
-        data["estimated_neurons"] + neurons
-    )
-
-    data["videos_analyzed"] += 1
-    data["last_video_neurons"] = neurons
-    data["last_updated_utc"] = (
-        utc_now()
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-    await save_neuron_usage(data)
-
-    return data
-
-
-async def neuron_usage_status():
-    data = await load_neuron_usage()
-
-    used = min(
-        NEURON_DAILY_LIMIT,
-        max(0, data["estimated_neurons"])
-    )
-
-    remaining = max(
-        0,
-        NEURON_DAILY_LIMIT - used
-    )
-
-    videos = data["videos_analyzed"]
-
-    if videos > 0:
-        average = max(
-            1,
-            int(
-                round(
-                    used / videos
-                )
-            )
-        )
-        estimated_videos = (
-            remaining // average
-        )
-    else:
-        average = 0
-        estimated_videos = None
-
-    return {
-        "mode": "estimated",
-        "daily_limit_neurons": NEURON_DAILY_LIMIT,
-        "estimated_used_neurons": used,
-        "estimated_remaining_neurons": remaining,
-        "videos_analyzed_today": videos,
-        "average_neurons_per_video": average,
-        "last_video_neurons": data["last_video_neurons"],
-        "estimated_videos_remaining": estimated_videos,
-        "last_updated_utc": data["last_updated_utc"]
-    }
-
-
-async def quota_status():
-    now = utc_now()
-    await refresh_quota_guard()
-    blocked = await is_quota_guard_blocked()
-
-    return {
-        "status": "quota_exhausted" if blocked else "available_or_not_checked",
-        "daily_limit_neurons": 10000,
-        "timezone": "UTC",
-        "current_utc": now.isoformat().replace("+00:00", "Z"),
-        "next_reset_utc": quota_reset_iso(now),
-        "automatic_daily_reset": True,
-        "persistent_guard": True,
-        "storage": "Cloudflare Workers KV",
-        "guard_blocked": blocked,
-        "blocked_date_utc": AI_QUOTA_GUARD.get("blocked_date"),
-        "last_model": AI_QUOTA_GUARD.get("last_model", ""),
-        "blocked_at_utc": AI_QUOTA_GUARD.get("blocked_at_utc"),
-        "last_error": AI_QUOTA_GUARD.get("last_error", ""),
-        "usage": await neuron_usage_status()
-    }
-
-
-class AIQuotaError(RuntimeError):
-    """Workers AI daily quota is unavailable for the current UTC day."""
-
-
 async def run_ai(
     system_prompt,
     user_prompt,
     max_tokens=AI_MAX_TOKENS
 ):
-    """
-    Stable Workers AI runner with an automatic daily quota guard.
-
-    Free Workers AI quota resets at 00:00 UTC. When Cloudflare returns
-    a quota/account-limit error, the guard blocks further AI calls for
-    the current UTC date. The guard is automatically cleared on the next
-    UTC date, so the first request after reset can try Workers AI again.
-
-    Quota errors do NOT trigger the fallback model because both models
-    consume the same account-level Workers AI allocation. This avoids
-    wasting additional requests when the account is quota-limited.
-    """
-
-    await refresh_quota_guard()
-
-    if await is_quota_guard_blocked():
-        raise AIQuotaError(
-            "Workers AI daily free quota is currently unavailable. "
-            "Automatic retry is enabled after the Cloudflare daily reset "
-            "at " + quota_reset_iso() + "."
-        )
 
     payload = {
         "messages": [
@@ -2241,118 +1704,29 @@ async def run_ai(
                 "content": user_prompt
             }
         ],
+        "response_format": {
+            "type": "json_object"
+        },
         "temperature": 0.0,
+        "seed": 42,
         "max_tokens": max_tokens
     }
 
-    models = [
-        AI_MODEL,
-        AI_FALLBACK_MODEL
-    ]
+    try:
 
-    errors = []
+        result = await env.AI.run(
+            AI_MODEL,
+            payload
+        )
 
-    for model in models:
+        return result
 
-        if not model:
-            continue
+    except Exception as error:
 
-        for attempt in range(AI_RETRIES + 1):
-
-            try:
-                result = await env.AI.run(
-                    model,
-                    payload
-                )
-
-                record_ai_usage_estimate(
-                    system_prompt,
-                    user_prompt,
-                    result,
-                    model
-                )
-
-                return result
-
-            except Exception as error:
-
-                message = str(error)
-
-                errors.append(
-                    model
-                    + " -> "
-                    + message
-                )
-
-                if is_ai_quota_error(message):
-                    await set_quota_guard_block(model, message)
-
-                    raise AIQuotaError(
-                        "Workers AI daily free quota is currently unavailable. "
-                        "Cloudflare returned a quota/account-limit error. "
-                        "Automatic retry is enabled after the daily reset at "
-                        + quota_reset_iso()
-                        + "."
-                    )
-
-                if attempt < AI_RETRIES:
-                    await asyncio.sleep(
-                        0.8 * (attempt + 1)
-                    )
-
-    raise RuntimeError(
-        "AI model request failed. "
-        + " | ".join(errors)
-    )
-
-
-async def run_ai_json(
-    system_prompt,
-    user_prompt,
-    max_tokens=AI_MAX_TOKENS
-):
-    """
-    Run Workers AI and require a valid JSON object.
-
-    One repair attempt is allowed for malformed JSON.
-    Account/quota errors are not repeatedly re-requested.
-    """
-
-    last_error = None
-
-    for attempt in range(2):
-
-        prompt = user_prompt
-
-        if attempt:
-            prompt += (
-                "\n\nIMPORTANT RETRY: Return ONLY a valid JSON object. "
-                "Do not include markdown fences, explanations, or commentary."
-            )
-
-        try:
-
-            result = await run_ai(
-                system_prompt,
-                prompt,
-                max_tokens
-            )
-
-            return parse_ai_json(result)
-
-        except Exception as error:
-
-            last_error = error
-
-            if is_ai_quota_error(
-                str(error)
-            ):
-                break
-
-    raise RuntimeError(
-        "AI returned invalid or unusable JSON: "
-        + str(last_error)
-    )
+        raise RuntimeError(
+            "AI model request failed: "
+            + str(error)
+        )
 
 
 # ============================================================
@@ -2362,78 +1736,85 @@ async def run_ai_json(
 async def extract_highlighted_actors(source_text):
 
     if not isinstance(source_text, str):
-        return [], []
+        return []
 
     source_text = source_text.strip()
 
     if not source_text:
-        return [], []
+        return []
 
-    # Evidence extraction must use the timestamped transcript itself, not
-    # synthesized chunk notes, so the timestamp and quote can be traced back
-    # to the original source.
+    # Keep enough context for names, titles and attendance details.
+    # The actor extractor is factual and intentionally separate from the
+    # broader media analysis so generic action-only bullets are less likely.
     source_text = source_text[:MAX_FINAL_CONTEXT_CHARS]
 
     prompt = (
-        "Extract highlighted actors AND their source evidence from the "
-        "following timestamped transcript/source.\n\n"
+        "Extract the highlighted actors from the following source.\n\n"
         "SOURCE:\n\n"
         + source_text
     )
 
     try:
-        parsed = await run_ai_json(
+        result = await run_ai(
             ACTOR_EXTRACTION_SYSTEM_PROMPT,
             prompt,
-            3000
+            3500
         )
 
-        actors = parsed.get("actors", []) if isinstance(parsed, dict) else []
+        parsed = parse_ai_json(result)
+
+        actors = parsed.get(
+            "actors",
+            []
+        ) if isinstance(parsed, dict) else []
 
         if not isinstance(actors, list):
-            return [], []
+            return []
 
-        highlighted = []
-        evidence = []
+        cleaned = []
         seen = set()
 
-        for item in actors:
-            if not isinstance(item, dict):
-                continue
+        for actor in actors:
 
-            name = normalize_text(item.get("name", ""))
-            title = normalize_text(
-                item.get("official_title", item.get("title", ""))
-            )
-            role = normalize_text(
-                item.get("role", item.get("action", ""))
-            )
-            timestamp = normalize_text(
-                item.get("evidence_timestamp", item.get("timestamp", ""))
-            )
-            quote = normalize_text(
-                item.get("evidence_quote", item.get("quote", ""))
-            )
-
-            if not title and not name:
-                continue
-
-            if name and title and role:
-                actor_text = f"{name} — {title} — {role}"
-            elif name and role:
-                actor_text = f"{name} — {role}"
-            elif title and role:
-                actor_text = (
-                    f"{title} — name not stated in transcript — {role}"
+            if isinstance(actor, dict):
+                name = normalize_text(actor.get("name", ""))
+                title = normalize_text(
+                    actor.get("official_title", actor.get("title", ""))
                 )
-            elif name and title:
-                actor_text = f"{name} — {title}"
-            elif title:
-                actor_text = f"{title} — name not stated in transcript"
+                role = normalize_text(
+                    actor.get("role", actor.get("action", ""))
+                )
+
+                if name and title and role:
+                    actor_text = (
+                        name
+                        + " — "
+                        + title
+                        + " — "
+                        + role
+                    )
+                elif title and role:
+                    actor_text = (
+                        title
+                        + " — name not stated in transcript — "
+                        + role
+                    )
+                else:
+                    continue
             else:
+                actor_text = normalize_text(actor)
+
+            if not actor_text:
                 continue
 
-            generic = re.sub(r"\s+", " ", actor_text.lower()).strip()
+            # Reject the exact generic action-only output that caused the
+            # current problem.
+            generic = re.sub(
+                r"\s+",
+                " ",
+                actor_text.lower()
+            ).strip()
+
             if generic in {
                 "attended the opening ceremony",
                 "attended the opening",
@@ -2445,26 +1826,16 @@ async def extract_highlighted_actors(source_text):
                 continue
 
             key = actor_text.lower()
-            if key in seen:
-                continue
 
-            seen.add(key)
-            highlighted.append(actor_text)
+            if key not in seen:
+                seen.add(key)
+                cleaned.append(actor_text)
 
-            evidence.append({
-                "actor": actor_text,
-                "name": name,
-                "official_title": title,
-                "role": role,
-                "evidence_timestamp": timestamp,
-                "evidence_quote": quote
-            })
-
-        return highlighted[:12], evidence[:12]
+        return cleaned[:12]
 
     except Exception:
-        # Main analysis remains usable if the evidence extractor fails.
-        return [], []
+        # The main analysis remains usable if the dedicated extractor fails.
+        return []
 
 
 # ============================================================
@@ -2845,54 +2216,6 @@ def normalize_communication_risk(value):
 
 
 # ============================================================
-# NORMALIZE ACTOR EVIDENCE
-# ============================================================
-
-def normalize_actor_evidence(value):
-    if not isinstance(value, list):
-        return []
-
-    cleaned = []
-
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-
-        actor = normalize_text(
-            item.get("actor", "")
-        )
-        name = normalize_text(
-            item.get("name", "")
-        )
-        official_title = normalize_text(
-            item.get("official_title", item.get("title", ""))
-        )
-        role = normalize_text(
-            item.get("role", item.get("action", ""))
-        )
-        timestamp = normalize_text(
-            item.get("evidence_timestamp", item.get("timestamp", ""))
-        )
-        quote = normalize_text(
-            item.get("evidence_quote", item.get("quote", ""))
-        )
-
-        if not (actor or name or official_title or quote):
-            continue
-
-        cleaned.append({
-            "actor": actor,
-            "name": name,
-            "official_title": official_title,
-            "role": role,
-            "evidence_timestamp": timestamp,
-            "evidence_quote": quote
-        })
-
-    return cleaned[:12]
-
-
-# ============================================================
 # NORMALIZE MEDIA ANALYSIS
 # ============================================================
 
@@ -2907,10 +2230,6 @@ def normalize_media_analysis(value):
 
         "highlighted_actors": normalize_list(
             value.get("highlighted_actors", [])
-        ),
-
-        "actor_evidence": normalize_actor_evidence(
-            value.get("actor_evidence", [])
         ),
 
         "pemprov_jateng_position": normalize_text(
@@ -3115,8 +2434,11 @@ def synchronize_language_analysis(result):
 
     # Keep the Indonesian reason generated by the model,
     # but never allow it to alter the categorical decision.
-    # Do not copy English prose into Indonesian.
-    # Translation output remains the source of Indonesian wording.
+    if not id_sentiment.get("reason"):
+        id_sentiment["reason"] = en_sentiment.get(
+            "reason",
+            ""
+        )
 
     en["sentiment"] = en_sentiment
     id_block["sentiment"] = id_sentiment
@@ -3150,8 +2472,17 @@ def synchronize_language_analysis(result):
 
     id_risk["level"] = canonical_risk
 
-    # Do not copy English prose into Indonesian.
-    # Translation output remains the source of Indonesian wording.
+    if not id_risk.get("reason"):
+        id_risk["reason"] = en_risk.get(
+            "reason",
+            ""
+        )
+
+    if not id_risk.get("escalation_potential"):
+        id_risk["escalation_potential"] = en_risk.get(
+            "escalation_potential",
+            ""
+        )
 
     en["communication_risk"] = en_risk
     id_block["communication_risk"] = id_risk
@@ -3702,40 +3033,26 @@ async def fetch_transcript(
             "Invalid YouTube URL."
         )
 
-    response = None
-    last_error = None
+    try:
 
-    for attempt in range(TRANSCRIPT_RETRIES + 1):
-        try:
-            async with httpx.AsyncClient(
-                timeout=AI_TIMEOUT,
-                follow_redirects=True
-            ) as client:
-                response = await client.get(
-                    TRANSCRIPT_API_URL,
-                    params={
-                        "video_url": normalized_url
-                    }
-                )
+        async with httpx.AsyncClient(
+            timeout=AI_TIMEOUT,
+            follow_redirects=True
+        ) as client:
 
-            if response.status_code == 200:
-                break
-
-            last_error = RuntimeError(
-                "Transcript service returned HTTP "
-                + str(response.status_code)
+            response = await client.get(
+                TRANSCRIPT_API_URL,
+                params={
+                    "video_url":
+                        normalized_url
+                }
             )
 
-        except Exception as error:
-            last_error = error
+    except Exception as error:
 
-        if attempt < TRANSCRIPT_RETRIES:
-            await asyncio.sleep(0.8 * (attempt + 1))
-
-    if response is None:
         raise RuntimeError(
-            "Failed to connect to transcript service after retries: "
-            + str(last_error)
+            "Failed to connect to transcript service: "
+            + str(error)
         )
 
     if response.status_code != 200:
@@ -3887,132 +3204,324 @@ async def fetch_transcript(
 # MASTER -> INDONESIAN TRANSLATION
 # ============================================================
 
+async def translate_master_to_indonesian(
+    master_en
+):
+
+    if not isinstance(master_en, dict):
+        raise ValueError(
+            "Master English analysis is invalid."
+        )
+
+    source_json = json.dumps(
+        {
+            "en": master_en
+        },
+        ensure_ascii=False,
+        indent=2
+    )
+
+    prompt = """
+Translate the following MASTER ENGLISH ANALYSIS into Indonesian.
+
+IMPORTANT:
+- This is translation only, NOT a new analysis.
+- Preserve every fact, number, date, actor, issue, conclusion,
+  recommendation type, and list-item count.
+- Preserve the same order.
+- Translate ALL prose, especially recommendation action and reason.
+- Do not leave English sentences in the Indonesian result.
+- Keep the literal prefix "Inference:" for inferential items.
+- Keep controlled internal values unchanged.
+
+MASTER ENGLISH ANALYSIS:
+
+""" + source_json
+
+    result = await run_ai(
+        INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
+        prompt,
+        5000
+    )
+
+    parsed = parse_ai_json(
+        result
+    )
+
+    id_block = parsed.get(
+        "id",
+        parsed
+    )
+
+    if not isinstance(id_block, dict):
+        raise ValueError(
+            "Indonesian translation returned invalid data."
+        )
+
+    return normalize_language_block(
+        id_block
+    )
+
+
+def validate_indonesian_translation(
+    master_en,
+    id_block
+):
+
+    if not isinstance(master_en, dict):
+        raise ValueError(
+            "Master English analysis is invalid."
+        )
+
+    if not isinstance(id_block, dict):
+        raise ValueError(
+            "Indonesian analysis is invalid."
+        )
+
+    # Required text fields must exist in ID.
+    required_text_fields = [
+        "summary"
+    ]
+
+    for field_name in required_text_fields:
+        if not normalize_text(
+            id_block.get(field_name, "")
+        ):
+            raise ValueError(
+                "Indonesian translation is incomplete: "
+                + field_name
+            )
+
+    # List sections must preserve item counts.
+    list_fields = [
+        "key_points",
+        "critical_analysis",
+        "implications",
+        "takeaways"
+    ]
+
+    for field_name in list_fields:
+
+        en_items = master_en.get(
+            field_name,
+            []
+        )
+        id_items = id_block.get(
+            field_name,
+            []
+        )
+
+        if not isinstance(en_items, list):
+            en_items = []
+
+        if not isinstance(id_items, list):
+            id_items = []
+
+        if len(en_items) != len(id_items):
+            raise ValueError(
+                "Indonesian translation changed item count: "
+                + field_name
+            )
+
+        for index, en_item in enumerate(en_items):
+            id_item = id_items[index]
+
+            en_text = normalize_text(en_item)
+            id_text = normalize_text(id_item)
+
+            if en_text and not id_text:
+                raise ValueError(
+                    "Indonesian translation contains an empty item: "
+                    + field_name
+                )
+
+    # Main issue must be complete.
+    en_issue = master_en.get(
+        "main_issue",
+        {}
+    )
+    id_issue = id_block.get(
+        "main_issue",
+        {}
+    )
+
+    if not isinstance(en_issue, dict):
+        en_issue = {}
+    if not isinstance(id_issue, dict):
+        id_issue = {}
+
+    if en_issue.get("title") and not id_issue.get("title"):
+        raise ValueError(
+            "Indonesian translation is incomplete: main_issue.title"
+        )
+
+    if en_issue.get("description") and not id_issue.get("description"):
+        raise ValueError(
+            "Indonesian translation is incomplete: main_issue.description"
+        )
+
+    # Recommendation count and prose must be preserved.
+    en_recs = master_en.get(
+        "recommendations",
+        []
+    )
+    id_recs = id_block.get(
+        "recommendations",
+        []
+    )
+
+    if not isinstance(en_recs, list):
+        en_recs = []
+    if not isinstance(id_recs, list):
+        id_recs = []
+
+    if len(en_recs) != len(id_recs):
+        raise ValueError(
+            "Indonesian translation changed recommendation count."
+        )
+
+    for index, en_rec in enumerate(en_recs):
+
+        if not isinstance(en_rec, dict):
+            continue
+
+        id_rec = id_recs[index]
+        if not isinstance(id_rec, dict):
+            raise ValueError(
+                "Indonesian recommendation item is invalid."
+            )
+
+        en_type = str(
+            en_rec.get("type", "")
+        ).strip().lower()
+        id_type = str(
+            id_rec.get("type", "")
+        ).strip().lower()
+
+        if en_type != id_type:
+            raise ValueError(
+                "Indonesian recommendation type changed."
+            )
+
+        for prose_field in [
+            "action",
+            "reason"
+        ]:
+            if (
+                normalize_text(
+                    en_rec.get(prose_field, "")
+                )
+                and not normalize_text(
+                    id_rec.get(prose_field, "")
+                )
+            ):
+                raise ValueError(
+                    "Indonesian recommendation is incomplete: "
+                    + prose_field
+                )
+
+    # Important: if the translation is exactly identical to English
+    # for a whole prose field, it is almost certainly untranslated.
+    # This specifically catches the current Action/Reason problem.
+    if (
+        normalize_text(master_en.get("summary", ""))
+        and normalize_text(master_en.get("summary", ""))
+        == normalize_text(id_block.get("summary", ""))
+    ):
+        raise ValueError(
+            "Indonesian summary appears untranslated."
+        )
+
+    for index, en_rec in enumerate(en_recs):
+        if not isinstance(en_rec, dict):
+            continue
+
+        id_rec = id_recs[index]
+
+        for prose_field in [
+            "action",
+            "reason"
+        ]:
+            en_text = normalize_text(
+                en_rec.get(prose_field, "")
+            )
+            id_text = normalize_text(
+                id_rec.get(prose_field, "")
+            )
+
+            if en_text and id_text and en_text == id_text:
+                raise ValueError(
+                    "Indonesian recommendation "
+                    + prose_field
+                    + " appears untranslated."
+                )
+
+    return True
+
+
 async def build_consistent_analysis(
     master_result,
-    actor_source=None,
-    fast_path=False
+    actor_source=None
 ):
 
     if not isinstance(master_result, dict):
-        raise ValueError("Master analysis returned invalid data.")
-
-    # Accept several common wrappers returned by Workers AI.
-    def find_language_block(obj, language):
-        if not isinstance(obj, dict):
-            return None
-
-        direct = obj.get(language)
-        if isinstance(direct, dict):
-            return direct
-
-        for key in ["analysis", "result", "response", "data", "translation", "translated"]:
-            value = obj.get(key)
-            if isinstance(value, dict):
-                found = find_language_block(value, language)
-                if isinstance(found, dict):
-                    return found
-        return None
-
-    master_en = find_language_block(master_result, "en")
-    if not isinstance(master_en, dict):
-        # Some models return the EN block directly.
-        if "summary" in master_result:
-            master_en = master_result
-        else:
-            raise ValueError("Master English analysis is missing.")
-
-    master_en = normalize_language_block(master_en)
-
-    # The master call is deliberately bilingual. Do not run the old
-    # translation pipeline here: that was the recurring failure point.
-    id_block = find_language_block(master_result, "id")
-
-    if isinstance(id_block, dict):
-        id_block = normalize_language_block(id_block)
-
-        # Do not let strict translation validation turn a usable bilingual
-        # response into the old translation error. Validate only the structural
-        # essentials needed by the frontend.
-        if not id_block.get("summary"):
-            id_block = None
-        elif len(id_block.get("key_points", [])) != len(master_en.get("key_points", [])):
-            id_block = None
-        elif len(id_block.get("critical_analysis", [])) != len(master_en.get("critical_analysis", [])):
-            id_block = None
-        elif len(id_block.get("implications", [])) != len(master_en.get("implications", [])):
-            id_block = None
-        elif len(id_block.get("takeaways", [])) != len(master_en.get("takeaways", [])):
-            id_block = None
-        elif len(id_block.get("recommendations", [])) != len(master_en.get("recommendations", [])):
-            id_block = None
-
-    if not isinstance(id_block, dict):
-        # One controlled repair call only when the first bilingual response
-        # is incomplete. This is NOT the old translation retry loop.
-        repair_prompt = """
-The previous AI response contained a valid English analysis but its Indonesian
-block was missing or structurally incomplete.
-
-Create ONLY the Indonesian block from the English block below.
-This is a translation repair, not a new analysis.
-Preserve every fact, number, name, date, actor, evidence timestamp, evidence
-quote, list count/order, sentiment label, risk level and recommendation type.
-Translate all prose naturally into Indonesian.
-
-Return ONLY this JSON object:
-{
-  "id": {
-    "summary": "",
-    "key_points": [],
-    "critical_analysis": [],
-    "implications": [],
-    "sentiment": {"label": "", "reason": ""},
-    "main_issue": {"title": "", "description": ""},
-    "media_analysis": {
-      "news_angle": "",
-      "highlighted_actors": [],
-      "actor_evidence": [],
-      "pemprov_jateng_position": "",
-      "public_opinion_potential": "",
-      "key_messages": []
-    },
-    "communication_risk": {
-      "level": "",
-      "reason": "",
-      "escalation_potential": ""
-    },
-    "recommendations": [],
-    "takeaways": []
-  }
-}
-
-ENGLISH BLOCK:
-""" + json.dumps(master_en, ensure_ascii=False)
-
-        repaired = await run_ai_json(
-            INDONESIAN_TRANSLATION_SYSTEM_PROMPT,
-            repair_prompt,
-            4200
+        raise ValueError(
+            "Master analysis returned invalid data."
         )
 
-        id_block = find_language_block(repaired, "id")
-        if not isinstance(id_block, dict) and isinstance(repaired, dict) and "summary" in repaired:
-            id_block = repaired
+    master_en = master_result.get(
+        "en",
+        master_result
+    )
 
-        if not isinstance(id_block, dict):
-            raise RuntimeError(
-                "Bilingual AI response did not contain a usable Indonesian analysis."
-            )
+    if not isinstance(master_en, dict):
+        raise ValueError(
+            "Master English analysis is missing."
+        )
 
-        id_block = normalize_language_block(id_block)
+    master_en = normalize_language_block(
+        master_en
+    )
+
+    # Run a dedicated factual actor extraction pass. This prevents the
+    # broader media-analysis model from collapsing named attendees into
+    # generic bullets such as "attended the opening ceremony".
+    if actor_source:
+        extracted_actors = await extract_highlighted_actors(
+            actor_source
+        )
+
+        if extracted_actors:
+            master_en.setdefault(
+                "media_analysis",
+                {}
+            )["highlighted_actors"] = extracted_actors
+
+    id_block = await translate_master_to_indonesian(
+        master_en
+    )
+
+    validate_indonesian_translation(
+        master_en,
+        id_block
+    )
 
     result = {
         "en": master_en,
         "id": id_block
     }
 
-    result = synchronize_language_analysis(result)
-    return enforce_inference_labels(result)
+    # Lock controlled analytical decisions to the master EN result.
+    result = synchronize_language_analysis(
+        result
+    )
+
+    # Do NOT copy English prose into Indonesian as a fallback.
+    # The Indonesian block must come from the translation step so
+    # that no English text can leak into the ID report.
+    return enforce_inference_labels(
+        result
+    )
 
 
 # ============================================================
@@ -4050,16 +3559,15 @@ async def analyze_large_transcript(
             + chunk
         )
 
-        result = await run_ai_json(
+        result = await run_ai(
             CHUNK_SYSTEM_PROMPT,
             prompt,
-            2200
+            2500
         )
 
         notes.append(
-            json.dumps(
-                result,
-                ensure_ascii=False
+            extract_ai_text(
+                result
             )
         )
 
@@ -4067,34 +3575,24 @@ async def analyze_large_transcript(
         notes
     )
 
-    if len(combined_notes) > MAX_FINAL_CONTEXT_CHARS:
-        half = MAX_FINAL_CONTEXT_CHARS // 2
-        combined_notes = (
-            combined_notes[:half]
-            + "\n\n[... middle notes omitted for context control ...]\n\n"
-            + combined_notes[-half:]
-        )
+    combined_notes = combined_notes[
+        :MAX_FINAL_CONTEXT_CHARS
+    ]
 
     final_prompt = """
 Create the final professional video analysis from the following
 factual extraction notes.
 
-IMPORTANT: Produce BOTH language blocks in this ONE AI call.
-- "en" = complete master English analysis.
-- "id" = complete faithful Indonesian translation of the same analysis.
-- Preserve facts, names, numbers, dates, list counts, order, sentiment, risk, recommendation types, and actor evidence.
-- Do not perform a separate re-analysis for Indonesian.
+IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
+The Indonesian version is generated separately by a translation step.
+Do not produce an Indonesian analysis in this call.
 
 Use all relevant information.
 
 Follow the required JSON structure.
 
-The executive summary should contain approximately 120-180 words per language.
-- Key Points: 4-6 items per language.
-- Critical Analysis: 2 items per language.
-- Implications: 2 items per language.
-- Takeaways: 2-3 items per language.
-- Recommendations: maximum 3 items per language.
+The executive summary must normally be approximately
+180-300 words.
 
 Do not invent facts.
 
@@ -4106,15 +3604,17 @@ ANALYSIS NOTES:
 
 """ + combined_notes
 
-    final_result = await run_ai_json(
+    final_result = await run_ai(
         MASTER_SYSTEM_PROMPT,
         final_prompt,
-        5200
+        5000
     )
 
     analysis = await build_consistent_analysis(
-        final_result,
-        actor_source=None
+        parse_ai_json(
+            final_result
+        ),
+        actor_source=combined_notes
     )
 
     return (
@@ -4132,100 +3632,22 @@ async def analyze_transcript(
     transcript_text
 ):
 
-    transcript_length = len(
+    if len(
         transcript_text
-    )
-
-    # --------------------------------------------------------
-    # FAST PATH
-    # --------------------------------------------------------
-    # Short videos normally do not need chunk extraction or the
-    # dedicated actor-evidence fallback. The master analysis already
-    # asks the model to return actors/evidence when supported.
-    # This reduces the common short-video path from up to 3 AI calls
-    # to 2: one master analysis + one Indonesian translation.
-    if transcript_length <= FAST_PATH_MAX_CHARS:
+    ) <= MAX_SINGLE_PASS_CHARS:
 
         prompt = """
 Create the final professional video analysis from
 the following transcript.
 
-FAST ANALYSIS MODE:
-- This is a short transcript.
-- Use the supplied transcript directly.
-- Do not perform chunk analysis.
-- Do not create a second analysis pass.
-- Keep the analysis concise while preserving the required JSON structure.
-- Provide only source-supported facts and reasonable connected inferences.
-- Every analytical inference MUST begin with "Inference:".
-
-IMPORTANT: Produce BOTH language blocks in this ONE AI call.
-- "en" = the master English analysis.
-- "id" = a faithful Indonesian translation of the same analysis.
-- Keep facts, names, numbers, dates, list counts, order, sentiment, risk,
-  recommendation types, and actor evidence consistent between EN and ID.
-- Do not perform a separate re-analysis for Indonesian.
-- Keep the bilingual response compact enough to fit the output limit.
-- Summary: about 120-180 words per language.
-- Key Points: 4-6 items per language.
-- Critical Analysis: 2 items per language.
-- Implications: 2 items per language.
-- Takeaways: 2-3 items per language.
-- Recommendations: maximum 3 items per language.
+IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
+The Indonesian version is generated separately by a translation step.
+Do not produce an Indonesian analysis in this call.
 
 Use ALL relevant information.
 
-Follow the required JSON structure.
-
-Return ONLY valid JSON.
-
-TRANSCRIPT:
-
-""" + transcript_text
-
-        result = await run_ai_json(
-            MASTER_SYSTEM_PROMPT,
-            prompt,
-            FAST_AI_MAX_TOKENS
-        )
-
-        analysis = await build_consistent_analysis(
-            result,
-            actor_source=None,
-            fast_path=True
-        )
-
-        return (
-            analysis,
-            "fast_single_pass",
-            1
-        )
-
-    # --------------------------------------------------------
-    # STANDARD SINGLE PASS
-    # --------------------------------------------------------
-    if transcript_length <= MAX_SINGLE_PASS_CHARS:
-
-        prompt = """
-Create the final professional video analysis from
-the following transcript.
-
-IMPORTANT: Produce BOTH language blocks in this ONE AI call.
-- "en" = complete master English analysis.
-- "id" = complete faithful Indonesian translation of the same analysis.
-- Preserve facts, names, numbers, dates, list counts, order, sentiment, risk, recommendation types, and actor evidence.
-- Do not perform a separate re-analysis for Indonesian.
-- Keep the bilingual response compact enough to fit the output limit.
-- Summary: about 120-180 words per language.
-- Key Points: 4-6 items per language.
-- Critical Analysis: 2 items per language.
-- Implications: 2 items per language.
-- Takeaways: 2-3 items per language.
-- Recommendations: maximum 3 items per language.
-
-Use ALL relevant information.
-
-The executive summary should contain approximately 120-180 words per language.
+The executive summary must normally contain
+approximately 180-300 words.
 
 Follow the required JSON structure.
 
@@ -4239,16 +3661,17 @@ TRANSCRIPT:
 
 """ + transcript_text
 
-        result = await run_ai_json(
+        result = await run_ai(
             MASTER_SYSTEM_PROMPT,
             prompt,
-            AI_MAX_TOKENS
+            5000
         )
 
         analysis = await build_consistent_analysis(
-            result,
-            actor_source=None,
-            fast_path=False
+            parse_ai_json(
+                result
+            ),
+            actor_source=transcript_text
         )
 
         return (
@@ -4680,91 +4103,6 @@ AGGREGATION DATA:
 
 
 # ============================================================
-# DAILY QUOTA STATUS
-# ============================================================
-
-@app.get("/quota-status")
-async def quota_status_endpoint():
-    return {
-        "version": "9.6.5",
-        "provider": "Cloudflare Workers AI",
-        "primary_model": AI_MODEL,
-        "fallback_model": AI_FALLBACK_MODEL,
-        "quota": await quota_status()
-    }
-
-
-# ============================================================
-# AI DIAGNOSTIC TEST
-# ============================================================
-
-@app.get("/ai-test")
-async def ai_test():
-
-    try:
-
-        result = await run_ai(
-            "Return ONLY a valid JSON object.",
-            '{"status":"ok"}',
-            80
-        )
-
-        parsed = parse_ai_json(
-            result
-        )
-
-        return {
-            "status":
-                "ok",
-
-            "version":
-                "9.6.5",
-
-            "ai":
-                parsed,
-
-            "quota":
-                await quota_status(),
-
-            "primary_model":
-                AI_MODEL,
-
-            "fallback_model":
-                AI_FALLBACK_MODEL
-        }
-
-    except Exception as error:
-
-        message = str(error)
-
-        return {
-            "status":
-                "error",
-
-            "version":
-                "9.6.5",
-
-            "primary_model":
-                AI_MODEL,
-
-            "fallback_model":
-                AI_FALLBACK_MODEL,
-
-            "quota_error":
-                isinstance(error, AIQuotaError)
-                or is_ai_quota_error(
-                    message
-                ),
-
-            "quota":
-                await quota_status(),
-
-            "error":
-                message
-        }
-
-
-# ============================================================
 # ROOT
 # ============================================================
 
@@ -4779,7 +4117,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.6.5"
+            "9.3.0"
     }
 
 
@@ -4795,7 +4133,7 @@ async def health():
             "ok",
 
         "version":
-            "9.6.5"
+            "9.3.0"
     }
 
 
@@ -4807,14 +4145,6 @@ async def health():
 async def analyze(
     request: Request
 ):
-
-    AI_USAGE_CONTEXT.set({
-        "estimated_neurons": 0,
-        "estimated_input_tokens": 0,
-        "estimated_output_tokens": 0,
-        "ai_calls": 0,
-        "models": []
-    })
 
     try:
 
@@ -4979,25 +4309,6 @@ async def analyze(
         )
 
         # ----------------------------------------------------
-        # ESTIMATED NEURON USAGE
-        # ----------------------------------------------------
-
-        usage_context = AI_USAGE_CONTEXT.get() or {}
-
-        estimated_video_neurons = int(
-            usage_context.get(
-                "estimated_neurons",
-                0
-            ) or 0
-        )
-
-        usage_record = await add_neuron_usage_estimate(
-            estimated_video_neurons
-        )
-
-        current_quota = await quota_status()
-
-        # ----------------------------------------------------
         # FINAL RESPONSE
         # ----------------------------------------------------
 
@@ -5063,32 +4374,8 @@ async def analyze(
                     ),
 
                 "transcript_hash":
-                    transcript_hash,
-
-                "estimated_neurons":
-                    estimated_video_neurons,
-
-                "estimated_input_tokens":
-                    usage_context.get(
-                        "estimated_input_tokens",
-                        0
-                    ),
-
-                "estimated_output_tokens":
-                    usage_context.get(
-                        "estimated_output_tokens",
-                        0
-                    ),
-
-                "ai_calls":
-                    usage_context.get(
-                        "ai_calls",
-                        0
-                    )
-            },
-
-            "quota":
-                current_quota
+                    transcript_hash
+            }
         }
 
     except ValueError as error:
@@ -5098,17 +4385,6 @@ async def analyze(
             "validation_error",
             400
         )
-
-    except AIQuotaError as error:
-
-        return {
-            "status": "error",
-            "message": str(error),
-            "error": str(error),
-            "error_type": "ai_quota_exhausted",
-            "http_status": 429,
-            "quota": await quota_status()
-        }
 
     except RuntimeError as error:
 
@@ -5132,10 +4408,4 @@ async def analyze(
 # CLOUDFLARE ASGI
 # ============================================================
 
-class Default(WorkerEntrypoint):
-    async def fetch(self, request):
-        return await asgi.fetch(
-            app,
-            request,
-            self.env
-        )
+Default = asgi.entrypoint(app)
