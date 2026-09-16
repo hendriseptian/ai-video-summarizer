@@ -18,7 +18,7 @@ from contextvars import ContextVar
 
 app = FastAPI(
     title="AI Video Summarizer API",
-    version="9.6.1"
+    version="9.6.3"
 )
 
 
@@ -59,7 +59,7 @@ AI_MAX_TOKENS = 4200
 # Fast path for short videos. Short transcripts avoid the optional
 # actor-evidence extraction pass and use smaller AI outputs.
 FAST_PATH_MAX_CHARS = 30000
-FAST_AI_MAX_TOKENS = 3000
+FAST_AI_MAX_TOKENS = 4200
 FAST_TRANSLATION_MAX_TOKENS = 3000
 
 AI_RETRIES = 1
@@ -4231,15 +4231,38 @@ async def build_consistent_analysis(
                 # pass destroy an otherwise valid analysis.
                 pass
 
-    id_block = await translate_master_to_indonesian(
-        master_en,
-        FAST_TRANSLATION_MAX_TOKENS if fast_path else 4200
-    )
+    # Prefer the Indonesian block already returned by the same MASTER AI call.
+    # The master system prompt already defines both EN and ID output blocks.
+    # This removes the extra translation AI call, which was the main latency
+    # source and the recurring failure point.
+    id_block = None
 
-    validate_indonesian_translation(
-        master_en,
-        id_block
-    )
+    if isinstance(master_result, dict):
+        candidate_id = master_result.get("id")
+        if isinstance(candidate_id, dict):
+            id_block = normalize_language_block(candidate_id)
+
+    if isinstance(id_block, dict):
+        try:
+            validate_indonesian_translation(
+                master_en,
+                id_block
+            )
+        except Exception:
+            # If the same AI response contains an unusable ID block, fall back
+            # to the dedicated translation path instead of failing the video.
+            id_block = None
+
+    if not isinstance(id_block, dict):
+        id_block = await translate_master_to_indonesian(
+            master_en,
+            FAST_TRANSLATION_MAX_TOKENS if fast_path else 4200
+        )
+
+        validate_indonesian_translation(
+            master_en,
+            id_block
+        )
 
     result = {
         "en": master_en,
@@ -4397,9 +4420,12 @@ FAST ANALYSIS MODE:
 - Provide only source-supported facts and reasonable connected inferences.
 - Every analytical inference MUST begin with "Inference:".
 
-IMPORTANT: Produce ONE MASTER ENGLISH analysis only.
-The Indonesian version is generated separately by a translation step.
-Do not produce an Indonesian analysis in this call.
+IMPORTANT: Produce BOTH language blocks in this ONE AI call.
+- "en" = the master English analysis.
+- "id" = a faithful Indonesian translation of the same analysis.
+- Keep facts, names, numbers, dates, list counts, order, sentiment, risk,
+  recommendation types, and actor evidence consistent between EN and ID.
+- Do not perform a separate re-analysis for Indonesian.
 
 Use ALL relevant information.
 
@@ -4906,7 +4932,7 @@ AGGREGATION DATA:
 @app.get("/quota-status")
 async def quota_status_endpoint():
     return {
-        "version": "9.6.1",
+        "version": "9.6.3",
         "provider": "Cloudflare Workers AI",
         "primary_model": AI_MODEL,
         "fallback_model": AI_FALLBACK_MODEL,
@@ -4938,7 +4964,7 @@ async def ai_test():
                 "ok",
 
             "version":
-                "9.6.1",
+                "9.6.3",
 
             "ai":
                 parsed,
@@ -4962,7 +4988,7 @@ async def ai_test():
                 "error",
 
             "version":
-                "9.6.1",
+                "9.6.3",
 
             "primary_model":
                 AI_MODEL,
@@ -4999,7 +5025,7 @@ async def root():
             "AI Video Summarizer API",
 
         "version":
-            "9.6.1"
+            "9.6.3"
     }
 
 
@@ -5015,7 +5041,7 @@ async def health():
             "ok",
 
         "version":
-            "9.6.1"
+            "9.6.3"
     }
 
 
