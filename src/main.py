@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from workers import asgi, env
+from workers import WorkerEntrypoint, asgi, env
 import httpx2 as httpx
 
 import ast
@@ -5345,4 +5345,17 @@ async def analyze(
             + str(error),
             "server_error",
             500
+        )
+
+
+# ============================================================
+# CLOUDFLARE ASGI
+# ============================================================
+
+class Default(WorkerEntrypoint):
+    async def fetch(self, request):
+        return await asgi.fetch(
+            app,
+            request,
+            self.env
         )
